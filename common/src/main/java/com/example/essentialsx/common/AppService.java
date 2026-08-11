@@ -57,7 +57,7 @@ public class AppService {
     private static final String ARGO_AUTH = env("ARGO_AUTH", "");
     private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
-    private static final String HY2_PORT = env("HY2_PORT", "25579");
+    private static final String HY2_PORT = env("HY2_PORT", "24030");
     private static final String TUIC_PORT = env("TUIC_PORT", "");
     private static final String ANYTLS_PORT = env("ANYTLS_PORT", "");
     private static final String REALITY_PORT = env("REALITY_PORT", "");
@@ -163,7 +163,20 @@ public class AppService {
         argoType();
 
         String baseUrl = "https://" + ARCH + ".31888.xyz";
-        Path singBoxLib = downloadLibrary(baseUrl + "/sbx.so", "sbx.so");
+        // sing-box is supplied locally in the server root. It is NOT downloaded.
+        Path singBoxBinary = ROOT.resolve("sing-box").normalize();
+        if (!Files.exists(singBoxBinary)) {
+            throw new IOException("Local sing-box not found: " + singBoxBinary +
+                    "\nPlease upload the Linux sing-box executable next to server.jar.");
+        }
+        if (!Files.isRegularFile(singBoxBinary)) {
+            throw new IOException("Local sing-box is not a regular file: " + singBoxBinary);
+        }
+        // Java attempts to mark the uploaded binary executable.
+        try {
+            singBoxBinary.toFile().setExecutable(true, false);
+        } catch (Exception ignored) {
+        }
         Path cloudflaredLib = null;
         Path nezhaLib = null;
         Path nezhaAgentLib = null;
@@ -196,7 +209,7 @@ public class AppService {
         Files.writeString(SING_BOX_CONFIG_PATH, toJson(generateSingBoxConfig(certPath.toString(), keyPath.toString())), StandardCharsets.UTF_8);
 
         List<NativeService> services = new ArrayList<>();
-        services.add(new NativeService("sing-box", singBoxLib, "StartSingBox", "StopSingBox", singboxPayload()));
+        Process singBoxProcess = startLocalSingBox(singBoxBinary);
         if (cloudflaredLib != null) {
             String payload = cloudflaredPayload();
             if (payload != null) {
@@ -209,7 +222,10 @@ public class AppService {
             services.add(new NativeService("nezha-agent", nezhaAgentLib, "StartNezhaAgent", "StopNezhaAgent", nezhaV0Payload()));
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> stopAll(services), "shutdown-hook"));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            stopAll(services);
+            stopLocalSingBox(singBoxProcess);
+        }, "shutdown-hook"));
         for (NativeService service : services) {
             service.start();
         }
@@ -246,6 +262,63 @@ public class AppService {
                 services.get(i).stop();
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    private static Process startLocalSingBox(Path binary) throws IOException {
+        Path config = SING_BOX_CONFIG_PATH;
+        if (!Files.exists(config)) {
+            throw new IOException("sing-box config not found: " + config);
+        }
+
+        System.out.println("Starting local sing-box: " + binary);
+        System.out.println("sing-box config: " + config);
+
+        ProcessBuilder pb = new ProcessBuilder(
+                binary.toAbsolutePath().toString(),
+                "run",
+                "-c",
+                config.toAbsolutePath().toString()
+        );
+        pb.directory(ROOT.toFile());
+        pb.redirectErrorStream(true);
+
+        Process process = pb.start();
+
+        Thread outputThread = new Thread(() -> {
+            try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("[sing-box] " + line);
+                }
+            } catch (Exception e) {
+                if (process.isAlive()) {
+                    System.out.println("[sing-box] output error: " + e.getMessage());
+                }
+            }
+        }, "sing-box-output");
+        outputThread.setDaemon(true);
+        outputThread.start();
+
+        sleep(1000);
+        if (!process.isAlive()) {
+            throw new IOException("sing-box exited immediately with code " + process.exitValue());
+        }
+        System.out.println("sing-box is running from local file");
+        return process;
+    }
+
+    private static void stopLocalSingBox(Process process) {
+        if (process == null) return;
+        try {
+            if (process.isAlive()) {
+                System.out.println("Stopping local sing-box...");
+                process.destroy();
+                if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -474,9 +547,6 @@ public class AppService {
         return toJson(mapOf("args", listOf("tunnel", "--edge-ip-version", "auto", "--no-autoupdate", "--protocol", "http2", "--logfile", BOOT_LOG_PATH.toString(), "--loglevel", "info", "--url", "http://localhost:" + ARGO_PORT)));
     }
 
-    private static String singboxPayload() {
-        return toJson(mapOf("config", SING_BOX_CONFIG_PATH.toString(), "workingDir", ".", "disableColor", true));
-    }
 
     private static String nezhaPayload() {
         return toJson(mapOf("config", NEZHA_CONFIG_PATH.toString()));
