@@ -1,9 +1,6 @@
 package com.example.essentialsx.common;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import com.sun.jna.Function;
-import com.sun.jna.NativeLibrary;
-
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.BindException;
@@ -57,7 +54,7 @@ public class AppService {
     private static final String ARGO_AUTH = env("ARGO_AUTH", "");
     private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
-    private static final String HY2_PORT = env("HY2_PORT", "24030");
+    private static final String HY2_PORT = env("HY2_PORT", "25579");
     private static final String TUIC_PORT = env("TUIC_PORT", "");
     private static final String ANYTLS_PORT = env("ANYTLS_PORT", "");
     private static final String REALITY_PORT = env("REALITY_PORT", "");
@@ -69,6 +66,8 @@ public class AppService {
     private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", false);
 
     private static final Path ROOT = Path.of("").toAbsolutePath();
+private static final Path SING_BOX_BINARY = ROOT.resolve("sing-box").normalize();
+private static Process singBoxProcess;
     private static final Path RUNTIME_DIR = ROOT.resolve(FILE_PATH).normalize();
     private static final Path SING_BOX_CONFIG_PATH = RUNTIME_DIR.resolve("config.json");
     private static final Path NEZHA_CONFIG_PATH = RUNTIME_DIR.resolve("config.yaml");
@@ -78,8 +77,7 @@ public class AppService {
     private static final Path INDEX_FILE_PATH = ROOT.resolve("index.html").normalize();
     private static final Path KEYPAIR_PATH = RUNTIME_DIR.resolve("keypair.properties");
     private static final String SUBSCRIBE_PATH = "/" + SUB_PATH.replaceFirst("^/+", "");
-    private static final String ARCH = detectArch();
-
+    
     private static String privateKey = "";
     private static String publicKey = "";
 
@@ -163,20 +161,7 @@ public class AppService {
         argoType();
 
         String baseUrl = "https://" + ARCH + ".31888.xyz";
-        // sing-box is supplied locally in the server root. It is NOT downloaded.
-        Path singBoxBinary = ROOT.resolve("sing-box").normalize();
-        if (!Files.exists(singBoxBinary)) {
-            throw new IOException("Local sing-box not found: " + singBoxBinary +
-                    "\nPlease upload the Linux sing-box executable next to server.jar.");
-        }
-        if (!Files.isRegularFile(singBoxBinary)) {
-            throw new IOException("Local sing-box is not a regular file: " + singBoxBinary);
-        }
-        // Java attempts to mark the uploaded binary executable.
-        try {
-            singBoxBinary.toFile().setExecutable(true, false);
-        } catch (Exception ignored) {
-        }
+        Path singBoxLib = downloadLibrary(baseUrl + "/sbx.so", "sbx.so");
         Path cloudflaredLib = null;
         Path nezhaLib = null;
         Path nezhaAgentLib = null;
@@ -209,7 +194,7 @@ public class AppService {
         Files.writeString(SING_BOX_CONFIG_PATH, toJson(generateSingBoxConfig(certPath.toString(), keyPath.toString())), StandardCharsets.UTF_8);
 
         List<NativeService> services = new ArrayList<>();
-        Process singBoxProcess = startLocalSingBox(singBoxBinary);
+        services.add(new NativeService("sing-box", singBoxLib, "StartSingBox", "StopSingBox", singboxPayload()));
         if (cloudflaredLib != null) {
             String payload = cloudflaredPayload();
             if (payload != null) {
@@ -222,10 +207,7 @@ public class AppService {
             services.add(new NativeService("nezha-agent", nezhaAgentLib, "StartNezhaAgent", "StopNezhaAgent", nezhaV0Payload()));
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            stopAll(services);
-            stopLocalSingBox(singBoxProcess);
-        }, "shutdown-hook"));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> stopAll(services), "shutdown-hook"));
         for (NativeService service : services) {
             service.start();
         }
@@ -255,122 +237,6 @@ public class AppService {
         new CountDownLatch(1).await();
     }
 
-    private static void stopAll(List<NativeService> services) {
-        System.out.println("\nStopping all services...");
-        for (int i = services.size() - 1; i >= 0; i--) {
-            try {
-                services.get(i).stop();
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    private static Process startLocalSingBox(Path binary) throws IOException {
-        Path config = SING_BOX_CONFIG_PATH;
-        if (!Files.exists(config)) {
-            throw new IOException("sing-box config not found: " + config);
-        }
-
-        System.out.println("Starting local sing-box: " + binary);
-        System.out.println("sing-box config: " + config);
-
-        ProcessBuilder pb = new ProcessBuilder(
-                binary.toAbsolutePath().toString(),
-                "run",
-                "-c",
-                config.toAbsolutePath().toString()
-        );
-        pb.directory(ROOT.toFile());
-        pb.redirectErrorStream(true);
-
-        Process process = pb.start();
-
-        Thread outputThread = new Thread(() -> {
-            try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    System.out.println("[sing-box] " + line);
-                }
-            } catch (Exception e) {
-                if (process.isAlive()) {
-                    System.out.println("[sing-box] output error: " + e.getMessage());
-                }
-            }
-        }, "sing-box-output");
-        outputThread.setDaemon(true);
-        outputThread.start();
-
-        sleep(1000);
-        if (!process.isAlive()) {
-            throw new IOException("sing-box exited immediately with code " + process.exitValue());
-        }
-        System.out.println("sing-box is running from local file");
-        return process;
-    }
-
-    private static void stopLocalSingBox(Process process) {
-        if (process == null) return;
-        try {
-            if (process.isAlive()) {
-                System.out.println("Stopping local sing-box...");
-                process.destroy();
-                if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static class NativeService {
-        private final String name;
-        private final Path libPath;
-        private final String startSymbol;
-        private final String stopSymbol;
-        private final String payload;
-        private NativeLibrary library;
-        private Function stopFunction;
-        private boolean running;
-
-        NativeService(String name, Path libPath, String startSymbol, String stopSymbol, String payload) {
-            this.name = name;
-            this.libPath = libPath;
-            this.startSymbol = startSymbol;
-            this.stopSymbol = stopSymbol;
-            this.payload = payload == null ? "" : payload;
-        }
-
-        void start() {
-            library = NativeLibrary.getInstance(libPath.toString());
-            Function startFunction = library.getFunction(startSymbol);
-            stopFunction = library.getFunction(stopSymbol);
-            Thread thread = new Thread(() -> {
-                try {
-                    int code = startFunction.invokeInt(new Object[]{payload});
-                    if (code != 0) {
-                        System.out.println(name + " native service exited with code " + code);
-                    }
-                } catch (Exception e) {
-                    System.out.println(name + " native service failed: " + e.getMessage());
-                }
-            }, name + "-thread");
-            thread.setDaemon(true);
-            thread.start();
-            running = true;
-        }
-
-        void stop() {
-            if (!running || stopFunction == null) return;
-            try {
-                int code = stopFunction.invokeInt(new Object[]{});
-                running = false;
-                System.out.println(name + " stopped with code " + code);
-            } catch (Exception e) {
-                System.out.println("Failed to stop " + name + ": " + e.getMessage());
-            }
-        }
-    }
-
     private static void argoType() throws IOException {
         if (DISABLE_ARGO) {
             System.out.println("DISABLE_ARGO is set to true, disable argo tunnel");
@@ -396,26 +262,6 @@ public class AppService {
         } else {
             System.out.println("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
         }
-    }
-
-    private static Path downloadLibrary(String url, String fileName) throws Exception {
-        Path target = RUNTIME_DIR.resolve(fileName);
-        if (Files.exists(target)) {
-            System.out.println("Using cached native library: " + target);
-            return target;
-        }
-        Files.createDirectories(RUNTIME_DIR);
-        Path tmp = RUNTIME_DIR.resolve(fileName + ".download");
-        System.out.println("Downloading " + url + " -> " + target);
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(3)).GET().build();
-        HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Failed to download " + url + ": HTTP " + response.statusCode());
-        }
-        Files.write(tmp, response.body());
-        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-        target.toFile().setExecutable(true, false);
-        return target;
     }
 
     private static Map<String, Object> generateSingBoxConfig(String certPath, String keyPath) {
@@ -532,32 +378,6 @@ public class AppService {
                         "final", "direct"
                 )
         );
-    }
-
-    private static String cloudflaredPayload() {
-        if (DISABLE_ARGO) return null;
-        if (!ARGO_AUTH.isEmpty() && !ARGO_DOMAIN.isEmpty()) {
-            if (Pattern.matches("^[A-Za-z0-9=]{120,250}$", ARGO_AUTH)) {
-                return toJson(mapOf("args", listOf("tunnel", "--edge-ip-version", "auto", "--no-autoupdate", "--protocol", "http2", "run", "--token", ARGO_AUTH)));
-            }
-            if (ARGO_AUTH.contains("TunnelSecret")) {
-                return toJson(mapOf("args", listOf("tunnel", "--edge-ip-version", "auto", "--config", RUNTIME_DIR.resolve("tunnel.yml").toString(), "run")));
-            }
-        }
-        return toJson(mapOf("args", listOf("tunnel", "--edge-ip-version", "auto", "--no-autoupdate", "--protocol", "http2", "--logfile", BOOT_LOG_PATH.toString(), "--loglevel", "info", "--url", "http://localhost:" + ARGO_PORT)));
-    }
-
-
-    private static String nezhaPayload() {
-        return toJson(mapOf("config", NEZHA_CONFIG_PATH.toString()));
-    }
-
-    private static String nezhaV0Payload() {
-        List<Object> args = new ArrayList<>(listOf("-s", NEZHA_SERVER + ":" + NEZHA_PORT, "-p", NEZHA_KEY, "--disable-auto-update", "--report-delay", "4", "--skip-conn", "--skip-procs"));
-        if (List.of("443", "8443", "2096", "2087", "2083", "2053").contains(NEZHA_PORT)) {
-            args.add("--tls");
-        }
-        return toJson(mapOf("args", args));
     }
 
     private static void generateNezhaConfig() throws IOException {
@@ -1147,11 +967,6 @@ public class AppService {
         }
         if (escaped) out.append('\\');
         return out.toString();
-    }
-
-    private static String detectArch() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
-        return arch.contains("aarch64") || arch.contains("arm64") ? "arm64" : "amd64";
     }
 
     private static String base64Url(byte[] bytes) {
