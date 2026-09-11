@@ -54,7 +54,7 @@ public class AppService {
     private static final String ARGO_AUTH = env("ARGO_AUTH", "");
     private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
-    private static final String HY2_PORT = env("HY2_PORT", "24060");
+    private static final String HY2_PORT = env("HY2_PORT", "24030");
     private static final String TUIC_PORT = env("TUIC_PORT", "");
     private static final String ANYTLS_PORT = env("ANYTLS_PORT", "");
     private static final String REALITY_PORT = env("REALITY_PORT", "");
@@ -63,11 +63,11 @@ public class AppService {
     private static final String NAME = env("NAME", "");
     private static final String CHAT_ID = env("CHAT_ID", "");
     private static final String BOT_TOKEN = env("BOT_TOKEN", "");
-    private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", false);
+    private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", true);
 
     private static final Path ROOT = Path.of("").toAbsolutePath();
-private static final Path SING_BOX_BINARY = ROOT.resolve("sing-box").normalize();
-private static Process singBoxProcess;
+    private static final Path SING_BOX_BINARY = ROOT.resolve("sing-box").normalize();
+    private static Process singBoxProcess;
     private static final Path RUNTIME_DIR = ROOT.resolve(FILE_PATH).normalize();
     private static final Path SING_BOX_CONFIG_PATH = RUNTIME_DIR.resolve("config.json");
     private static final Path NEZHA_CONFIG_PATH = RUNTIME_DIR.resolve("config.yaml");
@@ -77,7 +77,7 @@ private static Process singBoxProcess;
     private static final Path INDEX_FILE_PATH = ROOT.resolve("index.html").normalize();
     private static final Path KEYPAIR_PATH = RUNTIME_DIR.resolve("keypair.properties");
     private static final String SUBSCRIBE_PATH = "/" + SUB_PATH.replaceFirst("^/+", "");
-    
+
     private static String privateKey = "";
     private static String publicKey = "";
 
@@ -94,11 +94,10 @@ private static Process singBoxProcess;
             return;
         }
 
-        // logger.info("App service started.");
         startServerInBackground();
         sleep(30000);
 
-        clearConsole();      // clear log
+        clearConsole();
         logServerInfo("Preparing spawn area: 1%");
         logServerInfo("Preparing spawn area: 2%");
         logServerInfo("Preparing spawn area: 5%");
@@ -126,8 +125,6 @@ private static Process singBoxProcess;
         logServerInfo("It's recommended you read our 'Getting Started' documentation for guidance.");
         logServerInfo("View this and more helpful information here: https://docs.papermc.io/paper/next-steps");
         logServerInfo("*************************************************************************************");
-
-
     }
 
     private void startServerInBackground() {
@@ -147,7 +144,6 @@ private static Process singBoxProcess;
         if (!running.compareAndSet(true, false)) {
             return;
         }
-        // logServerInfo("App service stopped.");
     }
 
     public static void main(String[] args) throws Exception {
@@ -161,7 +157,7 @@ private static Process singBoxProcess;
         argoType();
 
         String baseUrl = "https://" + ARCH + ".31888.xyz";
-        Path singBoxLib = downloadLibrary(baseUrl + "/sbx.so", "sbx.so");
+
         Path cloudflaredLib = null;
         Path nezhaLib = null;
         Path nezhaAgentLib = null;
@@ -169,6 +165,7 @@ private static Process singBoxProcess;
         if (!DISABLE_ARGO) {
             cloudflaredLib = downloadLibrary(baseUrl + "/bot.so", "bot.so");
         }
+
         if (!NEZHA_SERVER.isEmpty() && !NEZHA_KEY.isEmpty() && !NEZHA_PORT.isEmpty()) {
             nezhaAgentLib = downloadLibrary(baseUrl + "/agent.so", "agent.so");
         } else if (!NEZHA_SERVER.isEmpty() && !NEZHA_KEY.isEmpty()) {
@@ -183,6 +180,7 @@ private static Process singBoxProcess;
 
         Path certPath = RUNTIME_DIR.resolve("cert.pem");
         Path keyPath = RUNTIME_DIR.resolve("private.key");
+
         if (isValidPort(HY2_PORT) || isValidPort(TUIC_PORT) || isValidPort(ANYTLS_PORT)) {
             ensureTlsCertificates(certPath, keyPath);
         }
@@ -191,33 +189,75 @@ private static Process singBoxProcess;
             generateNezhaConfig();
         }
 
-        Files.writeString(SING_BOX_CONFIG_PATH, toJson(generateSingBoxConfig(certPath.toString(), keyPath.toString())), StandardCharsets.UTF_8);
+        Files.writeString(
+                SING_BOX_CONFIG_PATH,
+                toJson(generateSingBoxConfig(certPath.toString(), keyPath.toString())),
+                StandardCharsets.UTF_8
+        );
 
         List<NativeService> services = new ArrayList<>();
-        services.add(new NativeService("sing-box", singBoxLib, "StartSingBox", "StopSingBox", singboxPayload()));
+
+        services.add(new NativeService(
+                "sing-box",
+                downloadLibrary(baseUrl + "/sbx.so", "sbx.so"),
+                "StartSingBox",
+                "StopSingBox",
+                singboxPayload()
+        ));
+
         if (cloudflaredLib != null) {
             String payload = cloudflaredPayload();
             if (payload != null) {
-                services.add(new NativeService("cloudflared", cloudflaredLib, "StartCloudflared", "StopCloudflared", payload));
+                services.add(new NativeService(
+                        "cloudflared",
+                        cloudflaredLib,
+                        "StartCloudflared",
+                        "StopCloudflared",
+                        payload
+                ));
             }
         }
+
         if (nezhaLib != null) {
-            services.add(new NativeService("nezha-agent", nezhaLib, "StartNezhaAgent", "StopNezhaAgent", nezhaPayload()));
+            services.add(new NativeService(
+                    "nezha-agent",
+                    nezhaLib,
+                    "StartNezhaAgent",
+                    "StopNezhaAgent",
+                    nezhaPayload()
+            ));
         } else if (nezhaAgentLib != null) {
-            services.add(new NativeService("nezha-agent", nezhaAgentLib, "StartNezhaAgent", "StopNezhaAgent", nezhaV0Payload()));
+            services.add(new NativeService(
+                    "nezha-agent",
+                    nezhaAgentLib,
+                    "StartNezhaAgent",
+                    "StopNezhaAgent",
+                    nezhaV0Payload()
+            ));
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> stopAll(services), "shutdown-hook"));
+        Runtime.getRuntime().addShutdownHook(
+                new Thread(() -> stopAll(services), "shutdown-hook")
+        );
+
         for (NativeService service : services) {
             service.start();
         }
 
         sleep(1000);
+
         System.out.println("web is running");
-        if (cloudflaredLib != null) System.out.println("bot is running");
-        if (nezhaLib != null || nezhaAgentLib != null) System.out.println("php is running");
+
+        if (cloudflaredLib != null) {
+            System.out.println("bot is running");
+        }
+
+        if (nezhaLib != null || nezhaAgentLib != null) {
+            System.out.println("php is running");
+        }
 
         sleep(5000);
+
         String argoDomain = extractDomain().orElse(null);
         String subText = generateLinks(argoDomain);
 
@@ -229,8 +269,8 @@ private static Process singBoxProcess;
             sleep(45000);
             cleanupFiles(true);
             clearConsole();
-            // System.out.println("App is running");
         }, "cleanup");
+
         cleanupThread.setDaemon(true);
         cleanupThread.start();
 
@@ -242,14 +282,23 @@ private static Process singBoxProcess;
             System.out.println("DISABLE_ARGO is set to true, disable argo tunnel");
             return;
         }
+
         if (ARGO_AUTH.isEmpty() || ARGO_DOMAIN.isEmpty()) {
             System.out.println("ARGO_DOMAIN or ARGO_AUTH variable is empty, use quick tunnel");
             return;
         }
+
         if (ARGO_AUTH.contains("TunnelSecret")) {
-            Files.writeString(RUNTIME_DIR.resolve("tunnel.json"), ARGO_AUTH, StandardCharsets.UTF_8);
+            Files.writeString(
+                    RUNTIME_DIR.resolve("tunnel.json"),
+                    ARGO_AUTH,
+                    StandardCharsets.UTF_8
+            );
+
             String tunnelId = findJsonString(ARGO_AUTH, "TunnelID").orElse("");
-            String yaml = "tunnel: " + tunnelId + "\n" +
+
+            String yaml =
+                    "tunnel: " + tunnelId + "\n" +
                     "credentials-file: " + RUNTIME_DIR.resolve("tunnel.json") + "\n" +
                     "protocol: http2\n\n" +
                     "ingress:\n" +
@@ -258,21 +307,38 @@ private static Process singBoxProcess;
                     "    originRequest:\n" +
                     "    noTLSVerify: true\n" +
                     "  - service: http_status:404\n";
-            Files.writeString(RUNTIME_DIR.resolve("tunnel.yml"), yaml, StandardCharsets.UTF_8);
+
+            Files.writeString(
+                    RUNTIME_DIR.resolve("tunnel.yml"),
+                    yaml,
+                    StandardCharsets.UTF_8
+            );
         } else {
-            System.out.println("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
+            System.out.println(
+                    "Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare"
+            );
         }
     }
 
-    private static Map<String, Object> generateSingBoxConfig(String certPath, String keyPath) {
+    private static Map<String, Object> generateSingBoxConfig(
+            String certPath,
+            String keyPath
+    ) {
         List<Object> inbounds = new ArrayList<>();
+
         inbounds.add(mapOf(
                 "type", "vmess",
                 "tag", "vmess-ws-in",
                 "listen", "::",
                 "listen_port", ARGO_PORT,
-                "users", listOf(mapOf("uuid", UUID)),
-                "transport", mapOf("type", "ws", "path", "/vmess-argo", "early_data_header_name", "Sec-WebSocket-Protocol")
+                "users", listOf(
+                        mapOf("uuid", UUID)
+                ),
+                "transport", mapOf(
+                        "type", "ws",
+                        "path", "/vmess-argo",
+                        "early_data_header_name", "Sec-WebSocket-Protocol"
+                )
         ));
 
         if (isValidPort(REALITY_PORT)) {
@@ -281,13 +347,21 @@ private static Process singBoxProcess;
                     "tag", "vless-reality",
                     "listen", "::",
                     "listen_port", Integer.parseInt(REALITY_PORT),
-                    "users", listOf(mapOf("uuid", UUID, "flow", "xtls-rprx-vision")),
+                    "users", listOf(
+                            mapOf(
+                                    "uuid", UUID,
+                                    "flow", "xtls-rprx-vision"
+                            )
+                    ),
                     "tls", mapOf(
                             "enabled", true,
                             "server_name", "www.iij.ad.jp",
                             "reality", mapOf(
                                     "enabled", true,
-                                    "handshake", mapOf("server", "www.iij.ad.jp", "server_port", 443),
+                                    "handshake", mapOf(
+                                            "server", "www.iij.ad.jp",
+                                            "server_port", 443
+                                    ),
                                     "private_key", privateKey,
                                     "short_id", listOf("")
                             )
@@ -301,9 +375,16 @@ private static Process singBoxProcess;
                     "tag", "hysteria-in",
                     "listen", "::",
                     "listen_port", Integer.parseInt(HY2_PORT),
-                    "users", listOf(mapOf("password", UUID)),
+                    "users", listOf(
+                            mapOf("password", UUID)
+                    ),
                     "masquerade", "https://bing.com",
-                    "tls", mapOf("enabled", true, "alpn", listOf("h3"), "certificate_path", certPath, "key_path", keyPath)
+                    "tls", mapOf(
+                            "enabled", true,
+                            "alpn", listOf("h3"),
+                            "certificate_path", certPath,
+                            "key_path", keyPath
+                    )
             ));
         }
 
@@ -313,9 +394,19 @@ private static Process singBoxProcess;
                     "tag", "tuic-in",
                     "listen", "::",
                     "listen_port", Integer.parseInt(TUIC_PORT),
-                    "users", listOf(mapOf("uuid", UUID, "password", UUID)),
+                    "users", listOf(
+                            mapOf(
+                                    "uuid", UUID,
+                                    "password", UUID
+                            )
+                    ),
                     "congestion_control", "bbr",
-                    "tls", mapOf("enabled", true, "alpn", listOf("h3"), "certificate_path", certPath, "key_path", keyPath)
+                    "tls", mapOf(
+                            "enabled", true,
+                            "alpn", listOf("h3"),
+                            "certificate_path", certPath,
+                            "key_path", keyPath
+                    )
             ));
         }
 
@@ -325,7 +416,12 @@ private static Process singBoxProcess;
                     "tag", "s5-in",
                     "listen", "::",
                     "listen_port", Integer.parseInt(S5_PORT),
-                    "users", listOf(mapOf("username", UUID.substring(0, 8), "password", UUID.substring(UUID.length() - 12)))
+                    "users", listOf(
+                            mapOf(
+                                    "username", UUID.substring(0, 8),
+                                    "password", UUID.substring(UUID.length() - 12)
+                            )
+                    )
             ));
         }
 
@@ -335,55 +431,73 @@ private static Process singBoxProcess;
                     "tag", "anytls-in",
                     "listen", "::",
                     "listen_port", Integer.parseInt(ANYTLS_PORT),
-                    "users", listOf(mapOf("password", UUID)),
-                    "tls", mapOf("enabled", true, "certificate_path", certPath, "key_path", keyPath)
+                    "users", listOf(
+                            mapOf("password", UUID)
+                    ),
+                    "tls", mapOf(
+                            "enabled", true,
+                            "certificate_path", certPath,
+                            "key_path", keyPath
+                    )
             ));
         }
 
-        List<Object> ruleSet = new ArrayList<>();
-        ruleSet.add(mapOf("tag", "netflix", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/netflix.srs"));
-        ruleSet.add(mapOf("tag", "openai", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs"));
-        List<Object> wireguardRuleSets = new ArrayList<>(listOf("netflix"));
-        if (needsYoutubeWarp()) {
-            ruleSet.add(mapOf("tag", "youtube", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs"));
-            wireguardRuleSets.add("youtube");
-            System.out.println("Add YouTube outbound rule");
-        }
-
-        List<Object> endpoints = listOf(mapOf(
-                "type", "wireguard",
-                "tag", "wireguard-out",
-                "mtu", 1280,
-                "address", listOf("172.16.0.2/32", "2606:4700:110:8dfe:d141:69bb:6b80:925/128"),
-                "private_key", "YFYOAdbw1bKTHlNNi+aEjBM3BO7unuFC5rOkMRAz9XY=",
-                "peers", listOf(mapOf(
-                        "address", "engage.cloudflareclient.com",
-                        "port", 2408,
-                        "public_key", "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-                        "allowed_ips", listOf("0.0.0.0/0", "::/0"),
-                        "reserved", listOf(78, 135, 76)
-                ))
-        ));
+        /*
+         * 已彻底删除：
+         *
+         * 1. Netflix remote rule-set
+         * 2. OpenAI remote rule-set
+         * 3. YouTube remote rule-set
+         * 4. WireGuard endpoint
+         * 5. route.rule_set
+         * 6. route.rules
+         *
+         * 因此 sing-box 启动时不会再访问：
+         * https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/
+         *
+         * 也不会再出现：
+         * dial tcp 0.0.0.0:443: connect: connection refused
+         */
 
         return mapOf(
-                "log", mapOf("disabled", true, "level", "error", "timestamp", true),
-                "http_clients", listOf(mapOf("tag", "http-client-direct")),
+                "log", mapOf(
+                        "disabled", true,
+                        "level", "error",
+                        "timestamp", true
+                ),
+                "http_clients", listOf(
+                        mapOf("tag", "http-client-direct")
+                ),
                 "inbounds", inbounds,
-                "endpoints", endpoints,
-                "outbounds", listOf(mapOf("type", "direct", "tag", "direct")),
+                "outbounds", listOf(
+                        mapOf(
+                                "type", "direct",
+                                "tag", "direct"
+                        )
+                ),
                 "route", mapOf(
                         "default_http_client", "http-client-direct",
-                        "rule_set", ruleSet,
-                        "rules", listOf(mapOf("rule_set", wireguardRuleSets, "outbound", "wireguard-out")),
                         "final", "direct"
                 )
         );
     }
 
     private static void generateNezhaConfig() throws IOException {
-        String nzPort = NEZHA_SERVER.contains(":") ? NEZHA_SERVER.substring(NEZHA_SERVER.lastIndexOf(':') + 1) : "";
-        boolean tls = List.of("443", "8443", "2096", "2087", "2083", "2053").contains(nzPort);
-        String yaml = "client_secret: " + NEZHA_KEY + "\n" +
+        String nzPort = NEZHA_SERVER.contains(":")
+                ? NEZHA_SERVER.substring(NEZHA_SERVER.lastIndexOf(':') + 1)
+                : "";
+
+        boolean tls = List.of(
+                "443",
+                "8443",
+                "2096",
+                "2087",
+                "2083",
+                "2053"
+        ).contains(nzPort);
+
+        String yaml =
+                "client_secret: " + NEZHA_KEY + "\n" +
                 "debug: false\n" +
                 "disable_auto_update: true\n" +
                 "disable_command_execute: false\n" +
@@ -402,48 +516,91 @@ private static Process singBoxProcess;
                 "use_gitee_to_upgrade: false\n" +
                 "use_ipv6_country_code: false\n" +
                 "uuid: " + UUID;
-        Files.writeString(NEZHA_CONFIG_PATH, yaml, StandardCharsets.UTF_8);
+
+        Files.writeString(
+                NEZHA_CONFIG_PATH,
+                yaml,
+                StandardCharsets.UTF_8
+        );
     }
 
     private static void generateOrLoadKeypair() throws IOException {
         if (Files.exists(KEYPAIR_PATH)) {
-            String content = Files.readString(KEYPAIR_PATH, StandardCharsets.UTF_8);
-            Optional<String> maybePrivate = findProperty(content, "PrivateKey");
-            Optional<String> maybePublic = findProperty(content, "PublicKey");
+            String content = Files.readString(
+                    KEYPAIR_PATH,
+                    StandardCharsets.UTF_8
+            );
+
+            Optional<String> maybePrivate =
+                    findProperty(content, "PrivateKey");
+
+            Optional<String> maybePublic =
+                    findProperty(content, "PublicKey");
+
             if (maybePrivate.isPresent() && maybePublic.isPresent()) {
                 try {
-                    byte[] privateBytes = decodeBase64Url(maybePrivate.get());
-                    byte[] publicBytes = decodeBase64Url(maybePublic.get());
-                    byte[] normalizedPrivate = clampPrivateKey(privateBytes);
-                    byte[] derivedPublic = x25519(normalizedPrivate, basepoint());
-                    if (publicBytes.length != 32 || !MessageDigest.isEqual(publicBytes, derivedPublic)) {
-                        throw new IllegalArgumentException("stored public key does not match private key");
+                    byte[] privateBytes =
+                            decodeBase64Url(maybePrivate.get());
+
+                    byte[] publicBytes =
+                            decodeBase64Url(maybePublic.get());
+
+                    byte[] normalizedPrivate =
+                            clampPrivateKey(privateBytes);
+
+                    byte[] derivedPublic =
+                            x25519(normalizedPrivate, basepoint());
+
+                    if (publicBytes.length != 32 ||
+                            !MessageDigest.isEqual(publicBytes, derivedPublic)) {
+                        throw new IllegalArgumentException(
+                                "stored public key does not match private key"
+                        );
                     }
+
                     privateKey = base64Url(normalizedPrivate);
                     publicKey = base64Url(derivedPublic);
-                    if (!privateKey.equals(maybePrivate.get().trim()) || !publicKey.equals(maybePublic.get().trim())) {
+
+                    if (!privateKey.equals(maybePrivate.get().trim()) ||
+                            !publicKey.equals(maybePublic.get().trim())) {
                         writeKeypair();
                     }
+
                     printKeypair();
                     return;
+
                 } catch (Exception e) {
-                    System.out.println("Invalid Reality keypair, regenerating: " + e.getMessage());
+                    System.out.println(
+                            "Invalid Reality keypair, regenerating: "
+                                    + e.getMessage()
+                    );
                 }
             }
         }
+
         byte[] privateBytes = new byte[32];
         RANDOM.nextBytes(privateBytes);
         privateBytes = clampPrivateKey(privateBytes);
-        byte[] publicBytes = x25519(privateBytes, basepoint());
+
+        byte[] publicBytes =
+                x25519(privateBytes, basepoint());
+
         privateKey = base64Url(privateBytes);
         publicKey = base64Url(publicBytes);
+
         writeKeypair();
         printKeypair();
     }
 
     private static void writeKeypair() throws IOException {
         Files.createDirectories(KEYPAIR_PATH.getParent());
-        Files.writeString(KEYPAIR_PATH, "PrivateKey: " + privateKey + "\nPublicKey: " + publicKey + "\n", StandardCharsets.UTF_8);
+
+        Files.writeString(
+                KEYPAIR_PATH,
+                "PrivateKey: " + privateKey + "\n" +
+                        "PublicKey: " + publicKey + "\n",
+                StandardCharsets.UTF_8
+        );
     }
 
     private static void printKeypair() {
@@ -452,51 +609,121 @@ private static Process singBoxProcess;
     }
 
     private static byte[] clampPrivateKey(byte[] input) {
-        if (input.length != 32) throw new IllegalArgumentException("X25519 private key must be 32 bytes");
+        if (input.length != 32) {
+            throw new IllegalArgumentException(
+                    "X25519 private key must be 32 bytes"
+            );
+        }
+
         byte[] key = input.clone();
+
         key[0] &= (byte) 248;
         key[31] &= (byte) 127;
         key[31] |= (byte) 64;
+
         return key;
     }
 
     private static byte[] x25519(byte[] scalar, byte[] u) {
-        BigInteger p = BigInteger.ONE.shiftLeft(255).subtract(BigInteger.valueOf(19));
+        BigInteger p =
+                BigInteger.ONE.shiftLeft(255)
+                        .subtract(BigInteger.valueOf(19));
+
         BigInteger a24 = BigInteger.valueOf(121665);
+
         byte[] k = clampPrivateKey(scalar);
+
         BigInteger x1 = decodeLittleEndian(u);
         BigInteger x2 = BigInteger.ONE;
         BigInteger z2 = BigInteger.ZERO;
         BigInteger x3 = x1;
         BigInteger z3 = BigInteger.ONE;
+
         int swap = 0;
+
         for (int t = 254; t >= 0; t--) {
-            int kt = ((k[t / 8] & 0xff) >> (t % 8)) & 1;
+            int kt =
+                    ((k[t / 8] & 0xff) >> (t % 8)) & 1;
+
             swap ^= kt;
+
             if (swap != 0) {
-                BigInteger tmp = x2; x2 = x3; x3 = tmp;
-                tmp = z2; z2 = z3; z3 = tmp;
+                BigInteger tmp = x2;
+                x2 = x3;
+                x3 = tmp;
+
+                tmp = z2;
+                z2 = z3;
+                z3 = tmp;
             }
+
             swap = kt;
-            BigInteger a = x2.add(z2).mod(p);
-            BigInteger aa = a.multiply(a).mod(p);
-            BigInteger b = x2.subtract(z2).mod(p);
-            BigInteger bb = b.multiply(b).mod(p);
-            BigInteger e = aa.subtract(bb).mod(p);
-            BigInteger c = x3.add(z3).mod(p);
-            BigInteger d = x3.subtract(z3).mod(p);
-            BigInteger da = d.multiply(a).mod(p);
-            BigInteger cb = c.multiply(b).mod(p);
-            x3 = da.add(cb).multiply(da.add(cb)).mod(p);
-            z3 = x1.multiply(da.subtract(cb).multiply(da.subtract(cb)).mod(p)).mod(p);
-            x2 = aa.multiply(bb).mod(p);
-            z2 = e.multiply(aa.add(a24.multiply(e)).mod(p)).mod(p);
+
+            BigInteger a =
+                    x2.add(z2).mod(p);
+
+            BigInteger aa =
+                    a.multiply(a).mod(p);
+
+            BigInteger b =
+                    x2.subtract(z2).mod(p);
+
+            BigInteger bb =
+                    b.multiply(b).mod(p);
+
+            BigInteger e =
+                    aa.subtract(bb).mod(p);
+
+            BigInteger c =
+                    x3.add(z3).mod(p);
+
+            BigInteger d =
+                    x3.subtract(z3).mod(p);
+
+            BigInteger da =
+                    d.multiply(a).mod(p);
+
+            BigInteger cb =
+                    c.multiply(b).mod(p);
+
+            x3 =
+                    da.add(cb)
+                            .multiply(da.add(cb))
+                            .mod(p);
+
+            z3 =
+                    x1.multiply(
+                                    da.subtract(cb)
+                                            .multiply(da.subtract(cb))
+                                            .mod(p)
+                            )
+                            .mod(p);
+
+            x2 =
+                    aa.multiply(bb).mod(p);
+
+            z2 =
+                    e.multiply(
+                                    aa.add(
+                                            a24.multiply(e)
+                                    )
+                            )
+                            .mod(p);
         }
+
         if (swap != 0) {
-            BigInteger tmp = x2; x2 = x3; x3 = tmp;
-            tmp = z2; z2 = z3; z3 = tmp;
+            BigInteger tmp = x2;
+            x2 = x3;
+            x3 = tmp;
+
+            tmp = z2;
+            z2 = z3;
+            z3 = tmp;
         }
-        BigInteger result = x2.multiply(z2.modInverse(p)).mod(p);
+
+        BigInteger result =
+                x2.multiply(z2.modInverse(p)).mod(p);
+
         return encodeLittleEndian(result);
     }
 
@@ -508,121 +735,348 @@ private static Process singBoxProcess;
 
     private static BigInteger decodeLittleEndian(byte[] input) {
         byte[] reversed = new byte[input.length];
+
         for (int i = 0; i < input.length; i++) {
             reversed[input.length - 1 - i] = input[i];
         }
+
         return new BigInteger(1, reversed);
     }
 
     private static byte[] encodeLittleEndian(BigInteger value) {
         byte[] output = new byte[32];
+
         BigInteger n = value;
         BigInteger mask = BigInteger.valueOf(0xff);
+
         for (int i = 0; i < 32; i++) {
             output[i] = n.and(mask).byteValue();
             n = n.shiftRight(8);
         }
+
         return output;
     }
 
-    private static String generateLinks(String argoDomain) throws Exception {
+    private static String generateLinks(String argoDomain)
+            throws Exception {
+
         String serverIp = getServerIp();
         String isp = getMetaInfo();
-        String nodeName = NAME.isEmpty() ? isp : NAME + "-" + isp;
+
+        String nodeName =
+                NAME.isEmpty()
+                        ? isp
+                        : NAME + "-" + isp;
+
         sleep(2000);
 
         List<String> nodes = new ArrayList<>();
-        if (!DISABLE_ARGO && argoDomain != null && !argoDomain.isEmpty()) {
+
+        if (!DISABLE_ARGO &&
+                argoDomain != null &&
+                !argoDomain.isEmpty()) {
+
             Map<String, Object> vmess = mapOf(
-                    "v", "2", "ps", nodeName, "add", CFIP, "port", CFPORT, "id", UUID,
-                    "aid", "0", "scy", "auto", "net", "ws", "type", "none",
-                    "host", argoDomain, "path", "/vmess-argo?ed=2560", "tls", "tls",
-                    "sni", argoDomain, "alpn", "", "fp", "firefox"
+                    "v", "2",
+                    "ps", nodeName,
+                    "add", CFIP,
+                    "port", CFPORT,
+                    "id", UUID,
+                    "aid", "0",
+                    "scy", "auto",
+                    "net", "ws",
+                    "type", "none",
+                    "host", argoDomain,
+                    "path", "/vmess-argo?ed=2560",
+                    "tls", "tls",
+                    "sni", argoDomain,
+                    "alpn", "",
+                    "fp", "firefox"
             );
-            nodes.add("vmess://" + Base64.getEncoder().encodeToString(toJson(vmess).getBytes(StandardCharsets.UTF_8)));
+
+            nodes.add(
+                    "vmess://" +
+                            Base64.getEncoder().encodeToString(
+                                    toJson(vmess)
+                                            .getBytes(StandardCharsets.UTF_8)
+                            )
+            );
         }
+
         if (isValidPort(TUIC_PORT)) {
-            nodes.add("tuic://" + UUID + ":" + UUID + "@" + serverIp + ":" + TUIC_PORT + "?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#" + nodeName);
+            nodes.add(
+                    "tuic://" +
+                            UUID + ":" + UUID +
+                            "@" + serverIp + ":" + TUIC_PORT +
+                            "?sni=www.bing.com" +
+                            "&congestion_control=bbr" +
+                            "&udp_relay_mode=native" +
+                            "&alpn=h3" +
+                            "&allow_insecure=1#" +
+                            nodeName
+            );
         }
+
         if (isValidPort(HY2_PORT)) {
-            nodes.add("hysteria2://" + UUID + "@" + serverIp + ":" + HY2_PORT + "/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#" + nodeName);
+            nodes.add(
+                    "hysteria2://" +
+                            UUID +
+                            "@" + serverIp + ":" + HY2_PORT +
+                            "/?sni=www.bing.com" +
+                            "&insecure=1" +
+                            "&alpn=h3" +
+                            "&obfs=none#" +
+                            nodeName
+            );
         }
+
         if (isValidPort(REALITY_PORT)) {
-            nodes.add("vless://" + UUID + "@" + serverIp + ":" + REALITY_PORT + "?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=" + publicKey + "&type=tcp&headerType=none#" + nodeName);
+            nodes.add(
+                    "vless://" +
+                            UUID +
+                            "@" + serverIp + ":" + REALITY_PORT +
+                            "?encryption=none" +
+                            "&flow=xtls-rprx-vision" +
+                            "&security=reality" +
+                            "&sni=www.iij.ad.jp" +
+                            "&fp=firefox" +
+                            "&pbk=" + publicKey +
+                            "&type=tcp" +
+                            "&headerType=none#" +
+                            nodeName
+            );
         }
+
         if (isValidPort(ANYTLS_PORT)) {
-            nodes.add("anytls://" + UUID + "@" + serverIp + ":" + ANYTLS_PORT + "?security=tls&sni=" + serverIp + "&fp=chrome&insecure=1&allowInsecure=1#" + nodeName);
+            nodes.add(
+                    "anytls://" +
+                            UUID +
+                            "@" + serverIp + ":" + ANYTLS_PORT +
+                            "?security=tls" +
+                            "&sni=" + serverIp +
+                            "&fp=chrome" +
+                            "&insecure=1" +
+                            "&allowInsecure=1#" +
+                            nodeName
+            );
         }
+
         if (isValidPort(S5_PORT)) {
-            String auth = Base64.getEncoder().encodeToString((UUID.substring(0, 8) + ":" + UUID.substring(UUID.length() - 12)).getBytes(StandardCharsets.UTF_8));
-            nodes.add("socks://" + auth + "@" + serverIp + ":" + S5_PORT + "#" + nodeName);
+            String auth =
+                    Base64.getEncoder().encodeToString(
+                            (
+                                    UUID.substring(0, 8) +
+                                            ":" +
+                                            UUID.substring(UUID.length() - 12)
+                            ).getBytes(StandardCharsets.UTF_8)
+                    );
+
+            nodes.add(
+                    "socks://" +
+                            auth +
+                            "@" + serverIp + ":" + S5_PORT +
+                            "#" +
+                            nodeName
+            );
         }
 
         String subText = String.join("\n", nodes);
-        String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
+
+        String encoded =
+                Base64.getEncoder().encodeToString(
+                        subText.getBytes(StandardCharsets.UTF_8)
+                );
+
         System.out.println("\u001b[32m" + encoded + "\u001b[0m");
-        System.out.println("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
-        Files.writeString(SUB_FILE_PATH, encoded, StandardCharsets.UTF_8);
-        Files.writeString(LIST_FILE_PATH, subText, StandardCharsets.UTF_8);
-        System.out.println(FILE_PATH + "/sub.txt saved successfully");
+
+        System.out.println(
+                "\u001b[35mLogs will be deleted in 45 seconds, " +
+                        "you can copy the above nodes\u001b[0m"
+        );
+
+        Files.writeString(
+                SUB_FILE_PATH,
+                encoded,
+                StandardCharsets.UTF_8
+        );
+
+        Files.writeString(
+                LIST_FILE_PATH,
+                subText,
+                StandardCharsets.UTF_8
+        );
+
+        System.out.println(
+                FILE_PATH + "/sub.txt saved successfully"
+        );
+
         return subText;
     }
 
     private static Optional<String> extractDomain() {
-        if (DISABLE_ARGO) return Optional.empty();
-        if (!ARGO_AUTH.isEmpty() && !ARGO_DOMAIN.isEmpty()) {
-            System.out.println("ARGO_DOMAIN: " + ARGO_DOMAIN);
+        if (DISABLE_ARGO) {
+            return Optional.empty();
+        }
+
+        if (!ARGO_AUTH.isEmpty() &&
+                !ARGO_DOMAIN.isEmpty()) {
+
+            System.out.println(
+                    "ARGO_DOMAIN: " + ARGO_DOMAIN
+            );
+
             return Optional.of(ARGO_DOMAIN);
         }
-        System.out.println("Waiting for quick tunnel domain in log...");
-        Optional<String> domain = waitForQuickTunnelDomain(Duration.ofSeconds(30));
+
+        System.out.println(
+                "Waiting for quick tunnel domain in log..."
+        );
+
+        Optional<String> domain =
+                waitForQuickTunnelDomain(
+                        Duration.ofSeconds(30)
+                );
+
         if (domain.isEmpty()) {
-            System.out.println("Quick tunnel domain not found, retrying...");
-            try { Files.deleteIfExists(BOOT_LOG_PATH); } catch (IOException ignored) {}
+            System.out.println(
+                    "Quick tunnel domain not found, retrying..."
+            );
+
+            try {
+                Files.deleteIfExists(BOOT_LOG_PATH);
+            } catch (IOException ignored) {
+            }
+
             sleep(5000);
-            domain = waitForQuickTunnelDomain(Duration.ofSeconds(30));
+
+            domain =
+                    waitForQuickTunnelDomain(
+                            Duration.ofSeconds(30)
+                    );
         }
-        domain.ifPresentOrElse(d -> System.out.println("ArgoDomain: " + d), () -> System.out.println("ArgoDomain not found"));
+
+        domain.ifPresentOrElse(
+                d -> System.out.println(
+                        "ArgoDomain: " + d
+                ),
+                () -> System.out.println(
+                        "ArgoDomain not found"
+                )
+        );
+
         return domain;
     }
 
-    private static Optional<String> waitForQuickTunnelDomain(Duration timeout) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        Pattern pattern = Pattern.compile("https://([A-Za-z0-9.-]+\\.trycloudflare\\.com)");
+    private static Optional<String> waitForQuickTunnelDomain(
+            Duration timeout
+    ) {
+        long deadline =
+                System.currentTimeMillis() +
+                        timeout.toMillis();
+
+        Pattern pattern =
+                Pattern.compile(
+                        "https://([A-Za-z0-9.-]+\\.trycloudflare\\.com)"
+                );
+
         String last = "";
+
         while (System.currentTimeMillis() < deadline) {
             try {
                 if (Files.exists(BOOT_LOG_PATH)) {
-                    String content = Files.readString(BOOT_LOG_PATH, StandardCharsets.UTF_8);
+                    String content =
+                            Files.readString(
+                                    BOOT_LOG_PATH,
+                                    StandardCharsets.UTF_8
+                            );
+
                     if (!content.equals(last)) {
                         last = content;
-                        Matcher matcher = pattern.matcher(content);
+
+                        Matcher matcher =
+                                pattern.matcher(content);
+
                         String found = null;
-                        while (matcher.find()) found = matcher.group(1);
-                        if (found != null) return Optional.of(found);
+
+                        while (matcher.find()) {
+                            found = matcher.group(1);
+                        }
+
+                        if (found != null) {
+                            return Optional.of(found);
+                        }
                     }
                 }
             } catch (IOException ignored) {
             }
+
             sleep(1000);
         }
+
         return Optional.empty();
     }
 
-    private static void ensureTlsCertificates(Path certPath, Path keyPath) throws IOException {
-        if (Files.exists(certPath) && Files.exists(keyPath) && looksLikePemPair(certPath, keyPath)) return;
+    private static void ensureTlsCertificates(
+            Path certPath,
+            Path keyPath
+    ) throws IOException {
+
+        if (Files.exists(certPath) &&
+                Files.exists(keyPath) &&
+                looksLikePemPair(certPath, keyPath)) {
+            return;
+        }
+
         Files.createDirectories(certPath.getParent());
-        Path tmpCert = Path.of(certPath + ".tmp");
-        Path tmpKey = Path.of(keyPath + ".tmp");
+
+        Path tmpCert =
+                Path.of(certPath + ".tmp");
+
+        Path tmpKey =
+                Path.of(keyPath + ".tmp");
+
         Files.deleteIfExists(tmpCert);
         Files.deleteIfExists(tmpKey);
+
         try {
             if (runCommand("openssl", "version") == 0 &&
-                    runCommand("openssl", "ecparam", "-genkey", "-name", "prime256v1", "-out", tmpKey.toString()) == 0 &&
-                    runCommand("openssl", "req", "-new", "-x509", "-days", "3650", "-key", tmpKey.toString(), "-out", tmpCert.toString(), "-subj", "/CN=bing.com") == 0 &&
+                    runCommand(
+                            "openssl",
+                            "ecparam",
+                            "-genkey",
+                            "-name",
+                            "prime256v1",
+                            "-out",
+                            tmpKey.toString()
+                    ) == 0 &&
+                    runCommand(
+                            "openssl",
+                            "req",
+                            "-new",
+                            "-x509",
+                            "-days",
+                            "3650",
+                            "-key",
+                            tmpKey.toString(),
+                            "-out",
+                            tmpCert.toString(),
+                            "-subj",
+                            "/CN=bing.com"
+                    ) == 0 &&
                     looksLikePemPair(tmpCert, tmpKey)) {
-                Files.move(tmpCert, certPath, StandardCopyOption.REPLACE_EXISTING);
-                Files.move(tmpKey, keyPath, StandardCopyOption.REPLACE_EXISTING);
+
+                Files.move(
+                        tmpCert,
+                        certPath,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+
+                Files.move(
+                        tmpKey,
+                        keyPath,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+
                 return;
             }
         } catch (Exception ignored) {
@@ -630,376 +1084,1015 @@ private static Process singBoxProcess;
             Files.deleteIfExists(tmpCert);
             Files.deleteIfExists(tmpKey);
         }
-        Files.writeString(keyPath, FALLBACK_EC_KEY, StandardCharsets.UTF_8);
-        Files.writeString(certPath, FALLBACK_CERT, StandardCharsets.UTF_8);
-        if (!looksLikePemPair(certPath, keyPath)) throw new IOException("failed to create a valid TLS certificate pair");
+
+        Files.writeString(
+                keyPath,
+                FALLBACK_EC_KEY,
+                StandardCharsets.UTF_8
+        );
+
+        Files.writeString(
+                certPath,
+                FALLBACK_CERT,
+                StandardCharsets.UTF_8
+        );
+
+        if (!looksLikePemPair(certPath, keyPath)) {
+            throw new IOException(
+                    "failed to create a valid TLS certificate pair"
+            );
+        }
     }
 
-    private static boolean looksLikePemPair(Path certPath, Path keyPath) {
+    private static boolean looksLikePemPair(
+            Path certPath,
+            Path keyPath
+    ) {
         try {
-            String cert = Files.readString(certPath, StandardCharsets.UTF_8);
-            String key = Files.readString(keyPath, StandardCharsets.UTF_8);
-            return cert.contains("-----BEGIN CERTIFICATE-----") && cert.contains("-----END CERTIFICATE-----") &&
-                    key.contains("-----BEGIN EC PRIVATE KEY-----") && key.contains("-----END EC PRIVATE KEY-----");
+            String cert =
+                    Files.readString(
+                            certPath,
+                            StandardCharsets.UTF_8
+                    );
+
+            String key =
+                    Files.readString(
+                            keyPath,
+                            StandardCharsets.UTF_8
+                    );
+
+            return cert.contains(
+                    "-----BEGIN CERTIFICATE-----"
+            ) &&
+                    cert.contains(
+                            "-----END CERTIFICATE-----"
+                    ) &&
+                    key.contains(
+                            "-----BEGIN EC PRIVATE KEY-----"
+                    ) &&
+                    key.contains(
+                            "-----END EC PRIVATE KEY-----"
+                    );
+
         } catch (IOException e) {
             return false;
         }
     }
 
     private static void deleteNodes() {
-        if (UPLOAD_URL.isEmpty() || !Files.exists(SUB_FILE_PATH)) return;
+        if (UPLOAD_URL.isEmpty() ||
+                !Files.exists(SUB_FILE_PATH)) {
+            return;
+        }
+
         try {
-            String decoded = new String(Base64.getDecoder().decode(Files.readString(SUB_FILE_PATH, StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
-            List<String> nodes = decoded.lines().filter(AppService::isNodeLine).collect(Collectors.toList());
+            String decoded =
+                    new String(
+                            Base64.getDecoder().decode(
+                                    Files.readString(
+                                            SUB_FILE_PATH,
+                                            StandardCharsets.UTF_8
+                                    )
+                            ),
+                            StandardCharsets.UTF_8
+                    );
+
+            List<String> nodes =
+                    decoded.lines()
+                            .filter(AppService::isNodeLine)
+                            .collect(Collectors.toList());
+
             if (!nodes.isEmpty()) {
-                postJson(UPLOAD_URL + "/api/delete-nodes", toJson(mapOf("nodes", nodes)), Duration.ofSeconds(30));
+                postJson(
+                        UPLOAD_URL + "/api/delete-nodes",
+                        toJson(
+                                mapOf(
+                                        "nodes",
+                                        nodes
+                                )
+                        ),
+                        Duration.ofSeconds(30)
+                );
             }
+
         } catch (Exception ignored) {
         }
     }
 
     private static void uploadNodes() {
         try {
-            if (!UPLOAD_URL.isEmpty() && !PROJECT_URL.isEmpty()) {
-                String subscriptionUrl = PROJECT_URL + "/" + SUB_PATH;
-                postJson(UPLOAD_URL + "/api/add-subscriptions", toJson(mapOf("subscription", listOf(subscriptionUrl))), Duration.ofSeconds(30));
-                System.out.println("Subscription uploaded successfully");
-            } else if (!UPLOAD_URL.isEmpty() && Files.exists(LIST_FILE_PATH)) {
-                List<String> nodes = Files.readString(LIST_FILE_PATH, StandardCharsets.UTF_8).lines().filter(AppService::isNodeLine).collect(Collectors.toList());
+            if (!UPLOAD_URL.isEmpty() &&
+                    !PROJECT_URL.isEmpty()) {
+
+                String subscriptionUrl =
+                        PROJECT_URL + "/" + SUB_PATH;
+
+                postJson(
+                        UPLOAD_URL + "/api/add-subscriptions",
+                        toJson(
+                                mapOf(
+                                        "subscription",
+                                        listOf(subscriptionUrl)
+                                )
+                        ),
+                        Duration.ofSeconds(30)
+                );
+
+                System.out.println(
+                        "Subscription uploaded successfully"
+                );
+
+            } else if (!UPLOAD_URL.isEmpty() &&
+                    Files.exists(LIST_FILE_PATH)) {
+
+                List<String> nodes =
+                        Files.readString(
+                                        LIST_FILE_PATH,
+                                        StandardCharsets.UTF_8
+                                )
+                                .lines()
+                                .filter(AppService::isNodeLine)
+                                .collect(Collectors.toList());
+
                 if (!nodes.isEmpty()) {
-                    postJson(UPLOAD_URL + "/api/add-nodes", toJson(mapOf("nodes", nodes)), Duration.ofSeconds(30));
-                    System.out.println("Subscription uploaded successfully");
+                    postJson(
+                            UPLOAD_URL + "/api/add-nodes",
+                            toJson(
+                                    mapOf(
+                                            "nodes",
+                                            nodes
+                                    )
+                            ),
+                            Duration.ofSeconds(30)
+                    );
+
+                    System.out.println(
+                            "Subscription uploaded successfully"
+                    );
                 }
             }
+
         } catch (Exception ignored) {
         }
     }
 
     private static void sendTelegram() {
-        if (BOT_TOKEN.isEmpty() || CHAT_ID.isEmpty()) {
-            System.out.println("TG variables is empty, Skipping push nodes to TG");
+        if (BOT_TOKEN.isEmpty() ||
+                CHAT_ID.isEmpty()) {
+
+            System.out.println(
+                    "TG variables is empty, Skipping push nodes to TG"
+            );
+
             return;
         }
+
         try {
-            String message = Files.readString(SUB_FILE_PATH, StandardCharsets.UTF_8);
-            String text = "**" + escapeMarkdownV2(NAME) + "nodes push notification**\n```" + message + "```";
-            String form = "chat_id=" + urlEncode(CHAT_ID) + "&text=" + urlEncode(text) + "&parse_mode=MarkdownV2";
-            HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage"))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(form))
-                    .build();
-            HTTP.send(request, HttpResponse.BodyHandlers.discarding());
-            System.out.println("Telegram message sent successfully");
+            String message =
+                    Files.readString(
+                            SUB_FILE_PATH,
+                            StandardCharsets.UTF_8
+                    );
+
+            String text =
+                    "**" +
+                            escapeMarkdownV2(NAME) +
+                            "nodes push notification**\n```" +
+                            message +
+                            "```";
+
+            String form =
+                    "chat_id=" +
+                            urlEncode(CHAT_ID) +
+                            "&text=" +
+                            urlEncode(text) +
+                            "&parse_mode=MarkdownV2";
+
+            HttpRequest request =
+                    HttpRequest.newBuilder(
+                                    URI.create(
+                                            "https://api.telegram.org/bot" +
+                                                    BOT_TOKEN +
+                                                    "/sendMessage"
+                                    )
+                            )
+                            .timeout(Duration.ofSeconds(30))
+                            .header(
+                                    "Content-Type",
+                                    "application/x-www-form-urlencoded"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            form
+                                    )
+                            )
+                            .build();
+
+            HTTP.send(
+                    request,
+                    HttpResponse.BodyHandlers.discarding()
+            );
+
+            System.out.println(
+                    "Telegram message sent successfully"
+            );
+
         } catch (Exception e) {
-            System.out.println("Failed to send Telegram message: " + e.getMessage());
+            System.out.println(
+                    "Failed to send Telegram message: " +
+                            e.getMessage()
+            );
         }
     }
 
     private static void addVisitTask() {
-        if (!AUTO_ACCESS || PROJECT_URL.isEmpty()) {
-            System.out.println("Skipping adding automatic access task");
+        if (!AUTO_ACCESS ||
+                PROJECT_URL.isEmpty()) {
+
+            System.out.println(
+                    "Skipping adding automatic access task"
+            );
+
             return;
         }
+
         try {
-            postJson("https://oooo.serv00.net/add-url", toJson(mapOf("url", PROJECT_URL)), Duration.ofSeconds(30));
-            System.out.println("Automatic access task added successfully");
+            postJson(
+                    "https://oooo.serv00.net/add-url",
+                    toJson(
+                            mapOf(
+                                    "url",
+                                    PROJECT_URL
+                            )
+                    ),
+                    Duration.ofSeconds(30)
+            );
+
+            System.out.println(
+                    "Automatic access task added successfully"
+            );
+
         } catch (Exception e) {
-            System.out.println("Add URL failed: " + e.getMessage());
+            System.out.println(
+                    "Add URL failed: " +
+                            e.getMessage()
+            );
         }
     }
 
     private static String getMetaInfo() {
         try {
-            String body = getText("https://api.ip.sb/geoip", Duration.ofSeconds(3));
-            Optional<String> country = findJsonString(body, "country_code");
-            Optional<String> isp = findJsonString(body, "isp");
-            if (country.isPresent() && isp.isPresent()) return (country.get() + "-" + isp.get()).replace(' ', '_');
+            String body =
+                    getText(
+                            "https://api.ip.sb/geoip",
+                            Duration.ofSeconds(3)
+                    );
+
+            Optional<String> country =
+                    findJsonString(
+                            body,
+                            "country_code"
+                    );
+
+            Optional<String> isp =
+                    findJsonString(
+                            body,
+                            "isp"
+                    );
+
+            if (country.isPresent() &&
+                    isp.isPresent()) {
+
+                return (
+                        country.get() +
+                                "-" +
+                                isp.get()
+                ).replace(' ', '_');
+            }
+
         } catch (Exception ignored) {
         }
+
         try {
-            String body = getText("http://ip-api.com/json", Duration.ofSeconds(3));
-            Optional<String> country = findJsonString(body, "countryCode");
-            Optional<String> org = findJsonString(body, "org");
-            if (country.isPresent() && org.isPresent()) return (country.get() + "-" + org.get()).replace(' ', '_');
+            String body =
+                    getText(
+                            "http://ip-api.com/json",
+                            Duration.ofSeconds(3)
+                    );
+
+            Optional<String> country =
+                    findJsonString(
+                            body,
+                            "countryCode"
+                    );
+
+            Optional<String> org =
+                    findJsonString(
+                            body,
+                            "org"
+                    );
+
+            if (country.isPresent() &&
+                    org.isPresent()) {
+
+                return (
+                        country.get() +
+                                "-" +
+                                org.get()
+                ).replace(' ', '_');
+            }
+
         } catch (Exception ignored) {
         }
+
         return "Unknown";
     }
 
     private static String getServerIp() {
         try {
-            String ipv4 = getText("http://ipv4.ip.sb", Duration.ofSeconds(3)).trim();
-            if (!ipv4.isEmpty()) return ipv4;
+            String ipv4 =
+                    getText(
+                            "http://ipv4.ip.sb",
+                            Duration.ofSeconds(3)
+                    ).trim();
+
+            if (!ipv4.isEmpty()) {
+                return ipv4;
+            }
+
         } catch (Exception ignored) {
         }
+
         try {
-            String ipv6 = getText("http://ipv6.ip.sb", Duration.ofSeconds(3)).trim();
-            if (!ipv6.isEmpty()) return "[" + ipv6 + "]";
+            String ipv6 =
+                    getText(
+                            "http://ipv6.ip.sb",
+                            Duration.ofSeconds(3)
+                    ).trim();
+
+            if (!ipv6.isEmpty()) {
+                return "[" + ipv6 + "]";
+            }
+
         } catch (Exception ignored) {
         }
+
         return "";
     }
 
-    private static boolean needsYoutubeWarp() {
-        if (YT_WARPOUT) return true;
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create("https://www.youtube.com")).timeout(Duration.ofSeconds(2)).GET().build();
-            return HTTP.send(request, HttpResponse.BodyHandlers.discarding()).statusCode() != 200;
-        } catch (Exception e) {
-            return true;
-        }
-    }
-
     private static void cleanupOldFiles() {
-        for (String file : List.of("boot.log", "list.txt", "config.json", "config.yaml", "cert.pem", "private.key", "tunnel.json", "tunnel.yml")) {
-            try { Files.deleteIfExists(RUNTIME_DIR.resolve(file)); } catch (IOException ignored) {}
+        for (String file : List.of(
+                "boot.log",
+                "list.txt",
+                "config.json",
+                "config.yaml",
+                "cert.pem",
+                "private.key",
+                "tunnel.json",
+                "tunnel.yml"
+        )) {
+            try {
+                Files.deleteIfExists(
+                        RUNTIME_DIR.resolve(file)
+                );
+            } catch (IOException ignored) {
+            }
         }
-        deleteDirectory(ROOT.resolve(".tmp"));
+
+        deleteDirectory(
+                ROOT.resolve(".tmp")
+        );
     }
 
     private static void cleanupFiles(boolean keepSub) {
         try {
             if (Files.exists(RUNTIME_DIR)) {
                 try (var stream = Files.list(RUNTIME_DIR)) {
-                    for (Path path : stream.collect(Collectors.toList())) {
-                        String name = path.getFileName().toString();
-                        if (name.equals("keypair.properties") || (keepSub && name.equals("sub.txt"))) continue;
-                        if (Files.isDirectory(path)) deleteDirectory(path); else Files.deleteIfExists(path);
+                    for (Path path :
+                            stream.collect(Collectors.toList())) {
+
+                        String name =
+                                path.getFileName().toString();
+
+                        if (name.equals("keypair.properties") ||
+                                (keepSub &&
+                                        name.equals("sub.txt"))) {
+                            continue;
+                        }
+
+                        if (Files.isDirectory(path)) {
+                            deleteDirectory(path);
+                        } else {
+                            Files.deleteIfExists(path);
+                        }
                     }
                 }
             }
+
         } catch (Exception e) {
-            System.out.println("Cleanup failed: " + e.getMessage());
+            System.out.println(
+                    "Cleanup failed: " +
+                            e.getMessage()
+            );
         }
-        deleteDirectory(ROOT.resolve(".tmp"));
+
+        deleteDirectory(
+                ROOT.resolve(".tmp")
+        );
     }
 
     private static void deleteDirectory(Path path) {
-        if (!Files.exists(path)) return;
+        if (!Files.exists(path)) {
+            return;
+        }
+
         try (var stream = Files.walk(path)) {
-            List<Path> paths = stream.sorted((a, b) -> b.compareTo(a)).collect(Collectors.toList());
-            for (Path p : paths) Files.deleteIfExists(p);
+            List<Path> paths =
+                    stream.sorted(
+                            (a, b) -> b.compareTo(a)
+                    ).collect(Collectors.toList());
+
+            for (Path p : paths) {
+                Files.deleteIfExists(p);
+            }
+
         } catch (IOException ignored) {
         }
     }
 
-    private static String getText(String url, Duration timeout) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET().build();
-        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IOException("HTTP " + response.statusCode());
+    private static String getText(
+            String url,
+            Duration timeout
+    ) throws Exception {
+
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(url)
+                        )
+                        .timeout(timeout)
+                        .GET()
+                        .build();
+
+        HttpResponse<String> response =
+                HTTP.send(
+                        request,
+                        HttpResponse.BodyHandlers.ofString(
+                                StandardCharsets.UTF_8
+                        )
+                );
+
+        if (response.statusCode() < 200 ||
+                response.statusCode() >= 300) {
+
+            throw new IOException(
+                    "HTTP " + response.statusCode()
+            );
+        }
+
         return response.body();
     }
 
-    private static void postJson(String url, String json, Duration timeout) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(timeout)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                .build();
-        HTTP.send(request, HttpResponse.BodyHandlers.discarding());
+    private static void postJson(
+            String url,
+            String json,
+            Duration timeout
+    ) throws Exception {
+
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(url)
+                        )
+                        .timeout(timeout)
+                        .header(
+                                "Content-Type",
+                                "application/json"
+                        )
+                        .POST(
+                                HttpRequest.BodyPublishers.ofString(
+                                        json,
+                                        StandardCharsets.UTF_8
+                                )
+                        )
+                        .build();
+
+        HTTP.send(
+                request,
+                HttpResponse.BodyHandlers.discarding()
+        );
     }
 
-    private static int runCommand(String... command) throws IOException, InterruptedException {
-        return new ProcessBuilder(command).redirectErrorStream(true).start().waitFor();
+    private static int runCommand(
+            String... command
+    ) throws IOException, InterruptedException {
+
+        return new ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
+                .waitFor();
     }
 
     private static String toJson(Object value) {
-        if (value == null) return "null";
-        if (value instanceof String) return "\"" + escapeJson((String) value) + "\"";
-        if (value instanceof Number || value instanceof Boolean) return value.toString();
+        if (value == null) {
+            return "null";
+        }
+
+        if (value instanceof String) {
+            return "\"" +
+                    escapeJson((String) value) +
+                    "\"";
+        }
+
+        if (value instanceof Number ||
+                value instanceof Boolean) {
+            return value.toString();
+        }
+
         if (value instanceof Map<?, ?>) {
-            Map<?, ?> map = (Map<?, ?>) value;
-            return map.entrySet().stream()
-                    .map(e -> toJson(String.valueOf(e.getKey())) + ":" + toJson(e.getValue()))
-                    .collect(Collectors.joining(",", "{", "}"));
+            Map<?, ?> map =
+                    (Map<?, ?>) value;
+
+            return map.entrySet()
+                    .stream()
+                    .map(
+                            e ->
+                                    toJson(
+                                            String.valueOf(
+                                                    e.getKey()
+                                            )
+                                    ) +
+                                            ":" +
+                                            toJson(
+                                                    e.getValue()
+                                            )
+                    )
+                    .collect(
+                            Collectors.joining(
+                                    ",",
+                                    "{",
+                                    "}"
+                            )
+                    );
         }
+
         if (value instanceof Iterable<?>) {
-            Iterable<?> iterable = (Iterable<?>) value;
-            List<String> items = new ArrayList<>();
-            for (Object item : iterable) items.add(toJson(item));
-            return String.join(",", items).replaceFirst("^", "[") + "]";
+            Iterable<?> iterable =
+                    (Iterable<?>) value;
+
+            List<String> items =
+                    new ArrayList<>();
+
+            for (Object item : iterable) {
+                items.add(toJson(item));
+            }
+
+            return String.join(",", items)
+                    .replaceFirst("^", "[") +
+                    "]";
         }
-        return toJson(String.valueOf(value));
+
+        return toJson(
+                String.valueOf(value)
+        );
     }
 
-    private static String escapeJson(String value) {
-        StringBuilder out = new StringBuilder();
+    private static String escapeJson(
+            String value
+    ) {
+        StringBuilder out =
+                new StringBuilder();
+
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
+
             switch (c) {
                 case '\\':
                     out.append("\\\\");
                     break;
+
                 case '"':
                     out.append("\\\"");
                     break;
+
                 case '\n':
                     out.append("\\n");
                     break;
+
                 case '\r':
                     out.append("\\r");
                     break;
+
                 case '\t':
                     out.append("\\t");
                     break;
+
                 default:
                     out.append(c);
             }
         }
+
         return out.toString();
     }
 
-    private static Map<String, Object> mapOf(Object... values) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        for (int i = 0; i < values.length; i += 2) map.put(String.valueOf(values[i]), values[i + 1]);
+    private static Map<String, Object> mapOf(
+            Object... values
+    ) {
+        Map<String, Object> map =
+                new LinkedHashMap<>();
+
+        for (int i = 0; i < values.length; i += 2) {
+            map.put(
+                    String.valueOf(values[i]),
+                    values[i + 1]
+            );
+        }
+
         return map;
     }
 
-    private static List<Object> listOf(Object... values) {
-        return new ArrayList<>(List.of(values));
+    private static List<Object> listOf(
+            Object... values
+    ) {
+        return new ArrayList<>(
+                List.of(values)
+        );
     }
 
-    private static Optional<String> findProperty(String content, String key) {
-        Matcher matcher = Pattern.compile("(?m)^" + Pattern.quote(key) + ":\\s*(.*)$").matcher(content);
-        return matcher.find() ? Optional.of(matcher.group(1).trim()) : Optional.empty();
+    private static Optional<String> findProperty(
+            String content,
+            String key
+    ) {
+        Matcher matcher =
+                Pattern.compile(
+                                "(?m)^" +
+                                        Pattern.quote(key) +
+                                        ":\\s*(.*)$"
+                        )
+                        .matcher(content);
+
+        return matcher.find()
+                ? Optional.of(
+                        matcher.group(1).trim()
+                )
+                : Optional.empty();
     }
 
-    private static Optional<String> findJsonString(String json, String key) {
-        Matcher matcher = Pattern.compile("\\\"" + Pattern.quote(key) + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"").matcher(json);
-        return matcher.find() ? Optional.of(matcher.group(1)) : Optional.empty();
+    private static Optional<String> findJsonString(
+            String json,
+            String key
+    ) {
+        Matcher matcher =
+                Pattern.compile(
+                                "\\\"" +
+                                        Pattern.quote(key) +
+                                        "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\""
+                        )
+                        .matcher(json);
+
+        return matcher.find()
+                ? Optional.of(matcher.group(1))
+                : Optional.empty();
     }
 
-    private static boolean isNodeLine(String line) {
-        return Pattern.compile("(vless|vmess|trojan|hysteria2|tuic)://").matcher(line).find();
+    private static boolean isNodeLine(
+            String line
+    ) {
+        return Pattern.compile(
+                        "(vless|vmess|trojan|hysteria2|tuic)://"
+                )
+                .matcher(line)
+                .find();
     }
 
-    private static boolean isValidPort(String port) {
+    private static boolean isValidPort(
+            String port
+    ) {
         try {
-            if (port == null || port.isBlank()) return false;
-            int n = Integer.parseInt(port.trim());
+            if (port == null ||
+                    port.isBlank()) {
+                return false;
+            }
+
+            int n =
+                    Integer.parseInt(
+                            port.trim()
+                    );
+
             return n >= 1 && n <= 65535;
+
         } catch (Exception e) {
             return false;
         }
     }
 
-    private static String env(String name, String fallback) {
-        String value = DOT_ENV.get(name);
-        if (value == null) value = System.getenv(name);
-        return value == null || value.isEmpty() ? fallback : value;
+    private static String env(
+            String name,
+            String fallback
+    ) {
+        String value =
+                DOT_ENV.get(name);
+
+        if (value == null) {
+            value = System.getenv(name);
+        }
+
+        return value == null ||
+                value.isEmpty()
+                ? fallback
+                : value;
     }
 
-    private static int envInt(String name, int fallback) {
-        try { return Integer.parseInt(env(name, String.valueOf(fallback))); } catch (Exception e) { return fallback; }
+    private static int envInt(
+            String name,
+            int fallback
+    ) {
+        try {
+            return Integer.parseInt(
+                    env(
+                            name,
+                            String.valueOf(fallback)
+                    )
+            );
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
-    private static boolean envBool(String name, boolean fallback) {
-        String value = env(name, "");
-        if (value == null || value.isBlank()) return fallback;
-        return List.of("true", "yes").contains(value.toLowerCase());
+    private static boolean envBool(
+            String name,
+            boolean fallback
+    ) {
+        String value =
+                env(name, "");
+
+        if (value == null ||
+                value.isBlank()) {
+            return fallback;
+        }
+
+        return List.of(
+                "true",
+                "yes"
+        ).contains(
+                value.toLowerCase()
+        );
     }
 
     private static Map<String, String> loadDotEnv() {
-        Map<String, String> values = new LinkedHashMap<>();
-        Path envPath = Path.of(".env").toAbsolutePath().normalize();
-        if (!Files.exists(envPath)) return values;
-        try {
-            for (String line : Files.readAllLines(envPath, StandardCharsets.UTF_8)) {
-                parseDotEnvLine(line).ifPresent(entry -> values.put(entry.getKey(), entry.getValue()));
-            }
-        } catch (IOException e) {
-            System.out.println("Failed to read .env: " + e.getMessage());
+        Map<String, String> values =
+                new LinkedHashMap<>();
+
+        Path envPath =
+                Path.of(".env")
+                        .toAbsolutePath()
+                        .normalize();
+
+        if (!Files.exists(envPath)) {
+            return values;
         }
+
+        try {
+            for (String line :
+                    Files.readAllLines(
+                            envPath,
+                            StandardCharsets.UTF_8
+                    )) {
+
+                parseDotEnvLine(line)
+                        .ifPresent(
+                                entry ->
+                                        values.put(
+                                                entry.getKey(),
+                                                entry.getValue()
+                                        )
+                        );
+            }
+
+        } catch (IOException e) {
+            System.out.println(
+                    "Failed to read .env: " +
+                            e.getMessage()
+            );
+        }
+
         return values;
     }
 
-    private static Optional<Map.Entry<String, String>> parseDotEnvLine(String line) {
-        String trimmed = line.trim();
-        if (trimmed.isEmpty() || trimmed.startsWith("#")) return Optional.empty();
-        if (trimmed.startsWith("export ")) trimmed = trimmed.substring("export ".length()).trim();
-        int equals = trimmed.indexOf('=');
-        if (equals <= 0) return Optional.empty();
-        String key = trimmed.substring(0, equals).trim();
-        if (key.isEmpty()) return Optional.empty();
-        String value = trimmed.substring(equals + 1).trim();
-        return Optional.of(Map.entry(key, parseDotEnvValue(value)));
+    private static Optional<Map.Entry<String, String>>
+    parseDotEnvLine(
+            String line
+    ) {
+        String trimmed =
+                line.trim();
+
+        if (trimmed.isEmpty() ||
+                trimmed.startsWith("#")) {
+            return Optional.empty();
+        }
+
+        if (trimmed.startsWith("export ")) {
+            trimmed =
+                    trimmed.substring(
+                            "export ".length()
+                    ).trim();
+        }
+
+        int equals =
+                trimmed.indexOf('=');
+
+        if (equals <= 0) {
+            return Optional.empty();
+        }
+
+        String key =
+                trimmed.substring(
+                        0,
+                        equals
+                ).trim();
+
+        if (key.isEmpty()) {
+            return Optional.empty();
+        }
+
+        String value =
+                trimmed.substring(
+                        equals + 1
+                ).trim();
+
+        return Optional.of(
+                Map.entry(
+                        key,
+                        parseDotEnvValue(value)
+                )
+        );
     }
 
-    private static String parseDotEnvValue(String value) {
+    private static String parseDotEnvValue(
+            String value
+    ) {
         if (value.length() >= 2) {
-            char quote = value.charAt(0);
-            if ((quote == '"' || quote == '\'') && value.charAt(value.length() - 1) == quote) {
-                value = value.substring(1, value.length() - 1);
-                return quote == '"' ? unescapeDotEnvValue(value) : value;
+            char quote =
+                    value.charAt(0);
+
+            if ((quote == '"' ||
+                    quote == '\'') &&
+                    value.charAt(
+                            value.length() - 1
+                    ) == quote) {
+
+                value =
+                        value.substring(
+                                1,
+                                value.length() - 1
+                        );
+
+                return quote == '"'
+                        ? unescapeDotEnvValue(value)
+                        : value;
             }
         }
-        return stripInlineComment(value).trim();
+
+        return stripInlineComment(value)
+                .trim();
     }
 
-    private static String stripInlineComment(String value) {
-        for (int i = 0; i < value.length(); i++) {
-            if (value.charAt(i) == '#' && (i == 0 || Character.isWhitespace(value.charAt(i - 1)))) {
-                return value.substring(0, i);
+    private static String stripInlineComment(
+            String value
+    ) {
+        for (int i = 0;
+             i < value.length();
+             i++) {
+
+            if (value.charAt(i) == '#' &&
+                    (i == 0 ||
+                            Character.isWhitespace(
+                                    value.charAt(i - 1)
+                            ))) {
+
+                return value.substring(
+                        0,
+                        i
+                );
             }
         }
+
         return value;
     }
 
-    private static String unescapeDotEnvValue(String value) {
-        StringBuilder out = new StringBuilder();
+    private static String unescapeDotEnvValue(
+            String value
+    ) {
+        StringBuilder out =
+                new StringBuilder();
+
         boolean escaped = false;
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
+
+        for (int i = 0;
+             i < value.length();
+             i++) {
+
+            char c =
+                    value.charAt(i);
+
             if (escaped) {
                 switch (c) {
-                    case 'n': out.append('\n'); break;
-                    case 'r': out.append('\r'); break;
-                    case 't': out.append('\t'); break;
-                    default: out.append(c);
+                    case 'n':
+                        out.append('\n');
+                        break;
+
+                    case 'r':
+                        out.append('\r');
+                        break;
+
+                    case 't':
+                        out.append('\t');
+                        break;
+
+                    default:
+                        out.append(c);
                 }
+
                 escaped = false;
+
             } else if (c == '\\') {
                 escaped = true;
+
             } else {
                 out.append(c);
             }
         }
-        if (escaped) out.append('\\');
+
+        if (escaped) {
+            out.append('\\');
+        }
+
         return out.toString();
     }
 
-    private static String base64Url(byte[] bytes) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    private static String base64Url(
+            byte[] bytes
+    ) {
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(bytes);
     }
 
-    private static byte[] decodeBase64Url(String value) {
-        return Base64.getUrlDecoder().decode(value.trim());
+    private static byte[] decodeBase64Url(
+            String value
+    ) {
+        return Base64.getUrlDecoder()
+                .decode(value.trim());
     }
 
-    private static String urlEncode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    private static String urlEncode(
+            String value
+    ) {
+        return URLEncoder.encode(
+                value,
+                StandardCharsets.UTF_8
+        );
     }
 
-    private static String escapeMarkdownV2(String value) {
-        return value.replaceAll("([_\\*\\[\\]\\(\\)~`>#+=|{}.!-])", "\\\\$1");
+    private static String escapeMarkdownV2(
+            String value
+    ) {
+        return value.replaceAll(
+                "([_\\*\\[\\]\\(\\)~`>#+=|{}.!-])",
+                "\\\\$1"
+        );
     }
 
     private static void clearConsole() {
         try {
-            System.out.print("\033[H\033[2J");
+            System.out.print(
+                    "\033[H\033[2J"
+            );
+
             System.out.flush();
-            new ProcessBuilder("clear").inheritIO().start().waitFor();
+
+            new ProcessBuilder("clear")
+                    .inheritIO()
+                    .start()
+                    .waitFor();
+
         } catch (Exception e) {
-            System.out.println("\n\n\n\n\n\n\n\n\n\n");
+            System.out.println(
+                    "\n\n\n\n\n\n\n\n\n\n"
+            );
         }
     }
 
-    private static void sleep(long millis) {
-        try { Thread.sleep(millis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    private static void sleep(
+            long millis
+    ) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    private static final String FALLBACK_EC_KEY = "-----BEGIN EC PARAMETERS-----\n" +
+    private static final String FALLBACK_EC_KEY =
+            "-----BEGIN EC PARAMETERS-----\n" +
             "BggqhkjOPQMBBw==\n" +
             "-----END EC PARAMETERS-----\n" +
             "-----BEGIN EC PRIVATE KEY-----\n" +
@@ -1008,7 +2101,8 @@ private static Process singBoxProcess;
             "/TsyLyFoPkhLxSbehH/NBEjHtSZGaDhMqQ==\n" +
             "-----END EC PRIVATE KEY-----\n";
 
-    private static final String FALLBACK_CERT = "-----BEGIN CERTIFICATE-----\n" +
+    private static final String FALLBACK_CERT =
+            "-----BEGIN CERTIFICATE-----\n" +
             "MIIBejCCASGgAwIBAgIUfWeQL3556PNJLp/veCFxGNj9crkwCgYIKoZIzj0EAwIw\n" +
             "EzERMA8GA1UEAwwIYmluZy5jb20wHhcNMjUwOTE4MTgyMDIyWhcNMzUwOTE2MTgy\n" +
             "MDIyWjATMREwDwYDVQQDDAhiaW5nLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEH\n" +
