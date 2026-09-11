@@ -50,7 +50,7 @@ public class AppService {
     private static final String NEZHA_SERVER = env("NEZHA_SERVER", "nezha.xxx.com:8008");
     private static final String NEZHA_PORT = env("NEZHA_PORT", "");
     private static final String NEZHA_KEY = env("NEZHA_KEY", "");
-    private static final String ARGO_DOMAIN = env("ARGO_DOMAIN","");
+    private static final String ARGO_DOMAIN = env("ARGO_DOMAIN", "");
     private static final String ARGO_AUTH = env("ARGO_AUTH", "");
     private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
@@ -64,6 +64,12 @@ public class AppService {
     private static final String CHAT_ID = env("CHAT_ID", "");
     private static final String BOT_TOKEN = env("BOT_TOKEN", "");
     private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", true);
+
+    /*
+     * 恢复原来的 ARCH 定义。
+     * 用于下载对应架构的 sbx.so / bot.so / agent.so / v1.so。
+     */
+    private static final String ARCH = detectArch();
 
     private static final Path ROOT = Path.of("").toAbsolutePath();
     private static final Path SING_BOX_BINARY = ROOT.resolve("sing-box").normalize();
@@ -94,6 +100,7 @@ public class AppService {
             return;
         }
 
+        // logger.info("App service started.");
         startServerInBackground();
         sleep(30000);
 
@@ -144,6 +151,7 @@ public class AppService {
         if (!running.compareAndSet(true, false)) {
             return;
         }
+        // logServerInfo("App service stopped.");
     }
 
     public static void main(String[] args) throws Exception {
@@ -158,6 +166,7 @@ public class AppService {
 
         String baseUrl = "https://" + ARCH + ".31888.xyz";
 
+        Path singBoxLib = downloadLibrary(baseUrl + "/sbx.so", "sbx.so");
         Path cloudflaredLib = null;
         Path nezhaLib = null;
         Path nezhaAgentLib = null;
@@ -199,7 +208,7 @@ public class AppService {
 
         services.add(new NativeService(
                 "sing-box",
-                downloadLibrary(baseUrl + "/sbx.so", "sbx.so"),
+                singBoxLib,
                 "StartSingBox",
                 "StopSingBox",
                 singboxPayload()
@@ -247,11 +256,9 @@ public class AppService {
         sleep(1000);
 
         System.out.println("web is running");
-
         if (cloudflaredLib != null) {
             System.out.println("bot is running");
         }
-
         if (nezhaLib != null || nezhaAgentLib != null) {
             System.out.println("php is running");
         }
@@ -315,11 +322,27 @@ public class AppService {
             );
         } else {
             System.out.println(
-                    "Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare"
+                    "Using token connect to tunnel, please set " +
+                            ARGO_PORT +
+                            " in cloudflare"
             );
         }
     }
 
+    /*
+     * sing-box 配置：
+     *
+     * 已彻底删除：
+     * 1. Netflix remote rule-set
+     * 2. OpenAI remote rule-set
+     * 3. YouTube remote rule-set
+     * 4. WireGuard endpoint
+     * 5. rule_set route
+     * 6. WireGuard outbound rule
+     *
+     * 因此 sing-box 启动时不会再访问：
+     * raw.githubusercontent.com/MetaCubeX/meta-rules-dat
+     */
     private static Map<String, Object> generateSingBoxConfig(
             String certPath,
             String keyPath
@@ -331,9 +354,7 @@ public class AppService {
                 "tag", "vmess-ws-in",
                 "listen", "::",
                 "listen_port", ARGO_PORT,
-                "users", listOf(
-                        mapOf("uuid", UUID)
-                ),
+                "users", listOf(mapOf("uuid", UUID)),
                 "transport", mapOf(
                         "type", "ws",
                         "path", "/vmess-argo",
@@ -442,23 +463,6 @@ public class AppService {
             ));
         }
 
-        /*
-         * 已彻底删除：
-         *
-         * 1. Netflix remote rule-set
-         * 2. OpenAI remote rule-set
-         * 3. YouTube remote rule-set
-         * 4. WireGuard endpoint
-         * 5. route.rule_set
-         * 6. route.rules
-         *
-         * 因此 sing-box 启动时不会再访问：
-         * https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/
-         *
-         * 也不会再出现：
-         * dial tcp 0.0.0.0:443: connect: connection refused
-         */
-
         return mapOf(
                 "log", mapOf(
                         "disabled", true,
@@ -533,7 +537,6 @@ public class AppService {
 
             Optional<String> maybePrivate =
                     findProperty(content, "PrivateKey");
-
             Optional<String> maybePublic =
                     findProperty(content, "PublicKey");
 
@@ -541,7 +544,6 @@ public class AppService {
                 try {
                     byte[] privateBytes =
                             decodeBase64Url(maybePrivate.get());
-
                     byte[] publicBytes =
                             decodeBase64Url(maybePublic.get());
 
@@ -568,11 +570,10 @@ public class AppService {
 
                     printKeypair();
                     return;
-
                 } catch (Exception e) {
                     System.out.println(
-                            "Invalid Reality keypair, regenerating: "
-                                    + e.getMessage()
+                            "Invalid Reality keypair, regenerating: " +
+                                    e.getMessage()
                     );
                 }
             }
@@ -580,6 +581,7 @@ public class AppService {
 
         byte[] privateBytes = new byte[32];
         RANDOM.nextBytes(privateBytes);
+
         privateBytes = clampPrivateKey(privateBytes);
 
         byte[] publicBytes =
@@ -616,7 +618,6 @@ public class AppService {
         }
 
         byte[] key = input.clone();
-
         key[0] &= (byte) 248;
         key[31] &= (byte) 127;
         key[31] |= (byte) 64;
@@ -659,56 +660,35 @@ public class AppService {
 
             swap = kt;
 
-            BigInteger a =
-                    x2.add(z2).mod(p);
+            BigInteger a = x2.add(z2).mod(p);
+            BigInteger aa = a.multiply(a).mod(p);
 
-            BigInteger aa =
-                    a.multiply(a).mod(p);
+            BigInteger b = x2.subtract(z2).mod(p);
+            BigInteger bb = b.multiply(b).mod(p);
 
-            BigInteger b =
-                    x2.subtract(z2).mod(p);
+            BigInteger e = aa.subtract(bb).mod(p);
 
-            BigInteger bb =
-                    b.multiply(b).mod(p);
+            BigInteger c = x3.add(z3).mod(p);
+            BigInteger d = x3.subtract(z3).mod(p);
 
-            BigInteger e =
-                    aa.subtract(bb).mod(p);
+            BigInteger da = d.multiply(a).mod(p);
+            BigInteger cb = c.multiply(b).mod(p);
 
-            BigInteger c =
-                    x3.add(z3).mod(p);
+            x3 = da.add(cb)
+                    .multiply(da.add(cb))
+                    .mod(p);
 
-            BigInteger d =
-                    x3.subtract(z3).mod(p);
+            z3 = x1.multiply(
+                    da.subtract(cb)
+                            .multiply(da.subtract(cb))
+                            .mod(p)
+            ).mod(p);
 
-            BigInteger da =
-                    d.multiply(a).mod(p);
+            x2 = aa.multiply(bb).mod(p);
 
-            BigInteger cb =
-                    c.multiply(b).mod(p);
-
-            x3 =
-                    da.add(cb)
-                            .multiply(da.add(cb))
-                            .mod(p);
-
-            z3 =
-                    x1.multiply(
-                                    da.subtract(cb)
-                                            .multiply(da.subtract(cb))
-                                            .mod(p)
-                            )
-                            .mod(p);
-
-            x2 =
-                    aa.multiply(bb).mod(p);
-
-            z2 =
-                    e.multiply(
-                                    aa.add(
-                                            a24.multiply(e)
-                                    )
-                            )
-                            .mod(p);
+            z2 = e.multiply(
+                    aa.add(a24.multiply(e)).mod(p)
+            ).mod(p);
         }
 
         if (swap != 0) {
@@ -875,8 +855,7 @@ public class AppService {
                     "socks://" +
                             auth +
                             "@" + serverIp + ":" + S5_PORT +
-                            "#" +
-                            nodeName
+                            "#" + nodeName
             );
         }
 
@@ -933,9 +912,7 @@ public class AppService {
         );
 
         Optional<String> domain =
-                waitForQuickTunnelDomain(
-                        Duration.ofSeconds(30)
-                );
+                waitForQuickTunnelDomain(Duration.ofSeconds(30));
 
         if (domain.isEmpty()) {
             System.out.println(
@@ -950,18 +927,12 @@ public class AppService {
             sleep(5000);
 
             domain =
-                    waitForQuickTunnelDomain(
-                            Duration.ofSeconds(30)
-                    );
+                    waitForQuickTunnelDomain(Duration.ofSeconds(30));
         }
 
         domain.ifPresentOrElse(
-                d -> System.out.println(
-                        "ArgoDomain: " + d
-                ),
-                () -> System.out.println(
-                        "ArgoDomain not found"
-                )
+                d -> System.out.println("ArgoDomain: " + d),
+                () -> System.out.println("ArgoDomain not found")
         );
 
         return domain;
@@ -1165,12 +1136,7 @@ public class AppService {
             if (!nodes.isEmpty()) {
                 postJson(
                         UPLOAD_URL + "/api/delete-nodes",
-                        toJson(
-                                mapOf(
-                                        "nodes",
-                                        nodes
-                                )
-                        ),
+                        toJson(mapOf("nodes", nodes)),
                         Duration.ofSeconds(30)
                 );
             }
@@ -1217,12 +1183,7 @@ public class AppService {
                 if (!nodes.isEmpty()) {
                     postJson(
                             UPLOAD_URL + "/api/add-nodes",
-                            toJson(
-                                    mapOf(
-                                            "nodes",
-                                            nodes
-                                    )
-                            ),
+                            toJson(mapOf("nodes", nodes)),
                             Duration.ofSeconds(30)
                     );
 
@@ -1231,7 +1192,6 @@ public class AppService {
                     );
                 }
             }
-
         } catch (Exception ignored) {
         }
     }
@@ -1349,16 +1309,10 @@ public class AppService {
                     );
 
             Optional<String> country =
-                    findJsonString(
-                            body,
-                            "country_code"
-                    );
+                    findJsonString(body, "country_code");
 
             Optional<String> isp =
-                    findJsonString(
-                            body,
-                            "isp"
-                    );
+                    findJsonString(body, "isp");
 
             if (country.isPresent() &&
                     isp.isPresent()) {
@@ -1381,16 +1335,10 @@ public class AppService {
                     );
 
             Optional<String> country =
-                    findJsonString(
-                            body,
-                            "countryCode"
-                    );
+                    findJsonString(body, "countryCode");
 
             Optional<String> org =
-                    findJsonString(
-                            body,
-                            "org"
-                    );
+                    findJsonString(body, "org");
 
             if (country.isPresent() &&
                     org.isPresent()) {
@@ -1459,9 +1407,7 @@ public class AppService {
             }
         }
 
-        deleteDirectory(
-                ROOT.resolve(".tmp")
-        );
+        deleteDirectory(ROOT.resolve(".tmp"));
     }
 
     private static void cleanupFiles(boolean keepSub) {
@@ -1475,8 +1421,7 @@ public class AppService {
                                 path.getFileName().toString();
 
                         if (name.equals("keypair.properties") ||
-                                (keepSub &&
-                                        name.equals("sub.txt"))) {
+                                (keepSub && name.equals("sub.txt"))) {
                             continue;
                         }
 
@@ -1488,7 +1433,6 @@ public class AppService {
                     }
                 }
             }
-
         } catch (Exception e) {
             System.out.println(
                     "Cleanup failed: " +
@@ -1496,9 +1440,7 @@ public class AppService {
             );
         }
 
-        deleteDirectory(
-                ROOT.resolve(".tmp")
-        );
+        deleteDirectory(ROOT.resolve(".tmp"));
     }
 
     private static void deleteDirectory(Path path) {
@@ -1604,12 +1546,12 @@ public class AppService {
 
         if (value instanceof Number ||
                 value instanceof Boolean) {
+
             return value.toString();
         }
 
         if (value instanceof Map<?, ?>) {
-            Map<?, ?> map =
-                    (Map<?, ?>) value;
+            Map<?, ?> map = (Map<?, ?>) value;
 
             return map.entrySet()
                     .stream()
@@ -1621,9 +1563,7 @@ public class AppService {
                                             )
                                     ) +
                                             ":" +
-                                            toJson(
-                                                    e.getValue()
-                                            )
+                                            toJson(e.getValue())
                     )
                     .collect(
                             Collectors.joining(
@@ -1650,14 +1590,10 @@ public class AppService {
                     "]";
         }
 
-        return toJson(
-                String.valueOf(value)
-        );
+        return toJson(String.valueOf(value));
     }
 
-    private static String escapeJson(
-            String value
-    ) {
+    private static String escapeJson(String value) {
         StringBuilder out =
                 new StringBuilder();
 
@@ -1723,16 +1659,13 @@ public class AppService {
     ) {
         Matcher matcher =
                 Pattern.compile(
-                                "(?m)^" +
-                                        Pattern.quote(key) +
-                                        ":\\s*(.*)$"
-                        )
-                        .matcher(content);
+                        "(?m)^" +
+                                Pattern.quote(key) +
+                                ":\\s*(.*)$"
+                ).matcher(content);
 
         return matcher.find()
-                ? Optional.of(
-                        matcher.group(1).trim()
-                )
+                ? Optional.of(matcher.group(1).trim())
                 : Optional.empty();
     }
 
@@ -1742,20 +1675,17 @@ public class AppService {
     ) {
         Matcher matcher =
                 Pattern.compile(
-                                "\\\"" +
-                                        Pattern.quote(key) +
-                                        "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\""
-                        )
-                        .matcher(json);
+                        "\\\"" +
+                                Pattern.quote(key) +
+                                "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\""
+                ).matcher(json);
 
         return matcher.find()
                 ? Optional.of(matcher.group(1))
                 : Optional.empty();
     }
 
-    private static boolean isNodeLine(
-            String line
-    ) {
+    private static boolean isNodeLine(String line) {
         return Pattern.compile(
                         "(vless|vmess|trojan|hysteria2|tuic)://"
                 )
@@ -1763,9 +1693,7 @@ public class AppService {
                 .find();
     }
 
-    private static boolean isValidPort(
-            String port
-    ) {
+    private static boolean isValidPort(String port) {
         try {
             if (port == null ||
                     port.isBlank()) {
@@ -1773,9 +1701,7 @@ public class AppService {
             }
 
             int n =
-                    Integer.parseInt(
-                            port.trim()
-                    );
+                    Integer.parseInt(port.trim());
 
             return n >= 1 && n <= 65535;
 
@@ -1788,15 +1714,13 @@ public class AppService {
             String name,
             String fallback
     ) {
-        String value =
-                DOT_ENV.get(name);
+        String value = DOT_ENV.get(name);
 
         if (value == null) {
             value = System.getenv(name);
         }
 
-        return value == null ||
-                value.isEmpty()
+        return value == null || value.isEmpty()
                 ? fallback
                 : value;
     }
@@ -1821,20 +1745,15 @@ public class AppService {
             String name,
             boolean fallback
     ) {
-        String value =
-                env(name, "");
+        String value = env(name, "");
 
         if (value == null ||
                 value.isBlank()) {
             return fallback;
         }
 
-        return List.of(
-                "true",
-                "yes"
-        ).contains(
-                value.toLowerCase()
-        );
+        return List.of("true", "yes")
+                .contains(value.toLowerCase());
     }
 
     private static Map<String, String> loadDotEnv() {
@@ -1878,11 +1797,9 @@ public class AppService {
     }
 
     private static Optional<Map.Entry<String, String>>
-    parseDotEnvLine(
-            String line
-    ) {
-        String trimmed =
-                line.trim();
+    parseDotEnvLine(String line) {
+
+        String trimmed = line.trim();
 
         if (trimmed.isEmpty() ||
                 trimmed.startsWith("#")) {
@@ -1935,9 +1852,7 @@ public class AppService {
 
             if ((quote == '"' ||
                     quote == '\'') &&
-                    value.charAt(
-                            value.length() - 1
-                    ) == quote) {
+                    value.charAt(value.length() - 1) == quote) {
 
                 value =
                         value.substring(
@@ -1951,27 +1866,20 @@ public class AppService {
             }
         }
 
-        return stripInlineComment(value)
-                .trim();
+        return stripInlineComment(value).trim();
     }
 
     private static String stripInlineComment(
             String value
     ) {
-        for (int i = 0;
-             i < value.length();
-             i++) {
-
+        for (int i = 0; i < value.length(); i++) {
             if (value.charAt(i) == '#' &&
                     (i == 0 ||
                             Character.isWhitespace(
                                     value.charAt(i - 1)
                             ))) {
 
-                return value.substring(
-                        0,
-                        i
-                );
+                return value.substring(0, i);
             }
         }
 
@@ -1986,12 +1894,8 @@ public class AppService {
 
         boolean escaped = false;
 
-        for (int i = 0;
-             i < value.length();
-             i++) {
-
-            char c =
-                    value.charAt(i);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
 
             if (escaped) {
                 switch (c) {
@@ -2063,10 +1967,7 @@ public class AppService {
 
     private static void clearConsole() {
         try {
-            System.out.print(
-                    "\033[H\033[2J"
-            );
-
+            System.out.print("\033[H\033[2J");
             System.out.flush();
 
             new ProcessBuilder("clear")
@@ -2081,14 +1982,42 @@ public class AppService {
         }
     }
 
-    private static void sleep(
-            long millis
-    ) {
+    private static void sleep(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /*
+     * 根据当前运行环境选择资源架构。
+     * amd64 / x86_64 -> amd64
+     * aarch64 / arm64 -> arm64
+     */
+    private static String detectArch() {
+        String arch =
+                System.getProperty(
+                        "os.arch",
+                        ""
+                ).toLowerCase();
+
+        if (arch.equals("amd64") ||
+                arch.equals("x86_64") ||
+                arch.equals("x86-64")) {
+            return "amd64";
+        }
+
+        if (arch.equals("aarch64") ||
+                arch.equals("arm64")) {
+            return "arm64";
+        }
+
+        if (arch.contains("arm")) {
+            return "arm64";
+        }
+
+        return arch;
     }
 
     private static final String FALLBACK_EC_KEY =
