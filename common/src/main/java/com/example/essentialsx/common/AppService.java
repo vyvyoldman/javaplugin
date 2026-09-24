@@ -694,14 +694,12 @@ public class AppService {
             nodes.add("socks://" + auth + "@" + serverIp + ":" + S5_PORT + "#" + nodeName);
         }
 
-        String subText = String.join("\n", nodes);
-        String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
-        log("\u001b[32m" + encoded + "\u001b[0m");
-        log("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
-        Files.writeString(SUB_FILE_PATH, encoded, StandardCharsets.UTF_8);
-        Files.writeString(LIST_FILE_PATH, subText, StandardCharsets.UTF_8);
-        log(FILE_PATH + "/sub.txt saved successfully");
-        return subText;
+    String subText = String.join("\n", nodes);
+    String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
+    log("\u001b[32m" + encoded + "\u001b[0m");
+    log("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
+
+return subText;
     }
 
     private static Optional<String> extractDomain() {
