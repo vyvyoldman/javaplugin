@@ -327,7 +327,20 @@ public class AppService {
         } else {
             log("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
         }
-   
+    }
+
+    private static Path downloadLibrary(String fileName) throws Exception {
+        return downloadLibrary(primaryUrl(fileName), fileName);
+    }
+
+    private static String primaryUrl(String fileName) {
+        return "https://" + ARCH + ".00666.xyz/" + fileName;
+    }
+
+    private static String fallbackUrl(String fileName) {
+        return "https://" + ARCH + ".oooen.com/" + fileName;
+    }
+
     private static Path downloadLibrary(String url, String fileName) throws Exception {
         try {
             return downloadFrom(url, fileName);
