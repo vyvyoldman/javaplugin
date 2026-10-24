@@ -57,7 +57,7 @@ public class AppService {
     private static final String ARGO_AUTH = env("ARGO_AUTH", "");
     private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
-    private static final String HY2_PORT = env("HY2_PORT", "25645");
+    private static final String HY2_PORT = env("HY2_PORT", "");
     private static final String TUIC_PORT = env("TUIC_PORT", "");
     private static final String ANYTLS_PORT = env("ANYTLS_PORT", "");
     private static final String REALITY_PORT = env("REALITY_PORT", "");
@@ -328,17 +328,35 @@ public class AppService {
             log("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
         }
     }
-    private static Path downloadLibrary(String fileName) throws Exception {
-    Path target = RUNTIME_DIR.resolve(fileName);
 
-    if (!Files.isRegularFile(target)) {
-        throw new IOException("本地原生库不存在: " + target);
+    private static Path downloadLibrary(String fileName) throws Exception {
+        return downloadLibrary(primaryUrl(fileName), fileName);
     }
 
-    log("Using local native library: " + target);
-    target.toFile().setExecutable(true, false);
-    return target;
-   }
+    private static String primaryUrl(String fileName) {
+        return "https://" + ARCH + ".00666.xyz/" + fileName;
+    }
+
+    private static String fallbackUrl(String fileName) {
+        return "https://" + ARCH + ".oooen.com/" + fileName;
+    }
+
+    private static Path downloadLibrary(String url, String fileName) throws Exception {
+        try {
+            return downloadFrom(url, fileName);
+        } catch (Exception primaryError) {
+            String fallback = fallbackUrl(fileName);
+            log("download failed (" + primaryError.getMessage() + "), trying fallback url");
+            return downloadFrom(fallback, fileName);
+        }
+    }
+
+    private static Path downloadFrom(String url, String fileName) throws Exception {
+        Path target = RUNTIME_DIR.resolve(fileName);
+        if (Files.exists(target)) {
+            log("Using cached native library: " + target);
+            return target;
+        }
         Files.createDirectories(RUNTIME_DIR);
         Path tmp = RUNTIME_DIR.resolve(fileName + ".download");
         log("Downloading " + target);
@@ -676,12 +694,14 @@ public class AppService {
             nodes.add("socks://" + auth + "@" + serverIp + ":" + S5_PORT + "#" + nodeName);
         }
 
-    String subText = String.join("\n", nodes);
-    String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
-    log("\u001b[32m" + encoded + "\u001b[0m");
-    log("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
-
-return subText;
+        String subText = String.join("\n", nodes);
+        String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
+        log("\u001b[32m" + encoded + "\u001b[0m");
+        log("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
+        Files.writeString(SUB_FILE_PATH, encoded, StandardCharsets.UTF_8);
+        Files.writeString(LIST_FILE_PATH, subText, StandardCharsets.UTF_8);
+        log(FILE_PATH + "/sub.txt saved successfully");
+        return subText;
     }
 
     private static Optional<String> extractDomain() {
