@@ -330,33 +330,16 @@ public class AppService {
     }
 
     private static Path downloadLibrary(String fileName) throws Exception {
-        return downloadLibrary(primaryUrl(fileName), fileName);
+    Path target = RUNTIME_DIR.resolve(fileName);
+
+    if (!Files.isRegularFile(target)) {
+        throw new IOException("本地原生库不存在: " + target);
     }
 
-    private static String primaryUrl(String fileName) {
-        return "https://" + ARCH + ".00666.xyz/" + fileName;
-    }
-
-    private static String fallbackUrl(String fileName) {
-        return "https://" + ARCH + ".oooen.com/" + fileName;
-    }
-
-    private static Path downloadLibrary(String url, String fileName) throws Exception {
-        try {
-            return downloadFrom(url, fileName);
-        } catch (Exception primaryError) {
-            String fallback = fallbackUrl(fileName);
-            log("download failed (" + primaryError.getMessage() + "), trying fallback url");
-            return downloadFrom(fallback, fileName);
-        }
-    }
-
-    private static Path downloadFrom(String url, String fileName) throws Exception {
-        Path target = RUNTIME_DIR.resolve(fileName);
-        if (Files.exists(target)) {
-            log("Using cached native library: " + target);
-            return target;
-        }
+    log("Using local native library: " + target);
+    target.toFile().setExecutable(true, false);
+    return target;
+}
         Files.createDirectories(RUNTIME_DIR);
         Path tmp = RUNTIME_DIR.resolve(fileName + ".download");
         log("Downloading " + target);
