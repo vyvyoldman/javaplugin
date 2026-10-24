@@ -328,7 +328,6 @@ public class AppService {
             log("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
         }
     }
-
     private static Path downloadLibrary(String fileName) throws Exception {
     Path target = RUNTIME_DIR.resolve(fileName);
 
@@ -339,7 +338,7 @@ public class AppService {
     log("Using local native library: " + target);
     target.toFile().setExecutable(true, false);
     return target;
-}
+   }
         Files.createDirectories(RUNTIME_DIR);
         Path tmp = RUNTIME_DIR.resolve(fileName + ".download");
         log("Downloading " + target);
