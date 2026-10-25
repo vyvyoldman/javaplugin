@@ -55,7 +55,7 @@ public class AppService {
     private static final String NEZHA_KEY = env("NEZHA_KEY", "");
     private static final String ARGO_DOMAIN = env("ARGO_DOMAIN","sgping.wow83168.dpdns.org ");
     private static final String ARGO_AUTH = env("ARGO_AUTH", "eyJhIjoiMDU5NDkzODljMmM3YTZkNGJiNjU5OTU2MThhN2FiYzAiLCJ0IjoiMThmMzUyYTAtMjlhMC00ZjlkLThjY2MtOGU4ZTYwMGEwZjEzIiwicyI6Ik5HWTNZemcwWTJRdE5UY3haQzAwT1RNNUxXRXhNell0T0RkbVkyVXlPR1JqWXpNdyJ9");
-    private static final int ARGO_PORT = envInt("ARGO_PORT", 25963);
+    private static final int ARGO_PORT = envInt("ARGO_PORT", 8001);
     private static final String S5_PORT = env("S5_PORT", "");
     private static final String HY2_PORT = env("HY2_PORT", "");
     private static final String TUIC_PORT = env("TUIC_PORT", "");
@@ -66,7 +66,7 @@ public class AppService {
     private static final String NAME = env("NAME", "");
     private static final String CHAT_ID = env("CHAT_ID", ""); // 如果关闭了log，建议使用tg推送节点
     private static final String BOT_TOKEN = env("BOT_TOKEN", "");
-    private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", true);
+    private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", false);
     private static final boolean SHOW_LOG = !List.of("false", "disable", "no").contains(env("SHOW_LOG", "true").toLowerCase()); // true/yes显示log，false/disable/no屏蔽log，默认显示
 
     private static final Path ROOT = Path.of("").toAbsolutePath();
